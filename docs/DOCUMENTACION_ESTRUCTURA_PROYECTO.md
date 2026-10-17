@@ -7,7 +7,7 @@
 **Nombre:** Ardilla Updater IA  
 **Tipo:** Aplicación Windows Forms (.NET) para gestión y actualización de DLCs de The Sims 4  
 **Repositorio:** https://github.com/williamconejo67-ai/ArdillaUpdaterIA  
-**Versión actual:** 1.1.3 (según CHANGELOG.md)  
+**Versión actual:** 1.1.4 (según CHANGELOG.md)  
 **Lenguaje:** C#  
 **Framework:** Basado en .NET (ver global.json y ArdillaUpdater.csproj)
 

@@ -10,6 +10,27 @@ El formato recomendado es:
 - `Removed` para cosas eliminadas
 - `Security` para mejoras de seguridad o integridad
 
+## [1.1.4] - 2026-10-17
+
+### Fixed
+
+- Validación de extracciones: ahora se exige **al menos un archivo con tamaño mayor que 0** en todo el árbol extraído antes de dar una instalación por válida. Antes bastaba con encontrar una subcarpeta (aunque estuviera vacía) o un archivo de 0 bytes, así que un ZIP que solo traía carpetas vacías —o un `Delta.package` vacío— se aceptaba como instalación correcta.
+- `DLCIntegrityChecker.FolderHasRealContent` deja de considerar "contenido" una subcarpeta vacía o un archivo de 0 bytes, y ya no filtra por extensión (evita marcar como incompletos packs con extensiones no listadas).
+- `__Installer`: antes de copiar se valida que la extracción haya producido archivos reales (no solo carpetas vacías).
+- DLC normal: la validación de contenido se hace **antes** de copiar, de modo que ya no queda una carpeta vacía en la carpeta del juego cuando la extracción no aporta nada.
+
+### Added
+
+- Pruebas de regresión (casos que antes se colaban): ZIP de `__Installer` solo con carpetas vacías, ZIP de DLC solo con carpetas vacías, ZIP de DLC solo con un `Delta.package` de 0 bytes, y una prueba de reparación real que crea `__Installer\DLC\<id>` y comprueba que el pack queda completo.
+
+### Changed
+
+- `DLCInstaller` reutiliza `DLCIntegrityChecker.FolderHasRealContent` y se elimina el helper `IsDirectoryEmpty`.
+
+### Notes
+
+- Verificación de esta versión: compilación `0 advertencias, 0 errores`; suite completa `88/88` pruebas superadas.
+
 ## [1.1.3] - 2026-10-16
 
 ### Added
@@ -28,9 +49,15 @@ El formato recomendado es:
 
 - Se elimina `ArdillaUpdater.Tests/AiComponentsTests.cs` (pruebas redundantes; su cobertura vive ahora en las suites de IA).
 
+### Fixed
+
+- Instalación en un sistema limpio: `IsMissingInstallerDlcFolder` ya no exige que exista la carpeta principal del pack. Así, cuando el juego trae su propia carpeta `__Installer` pero los packs aún no están instalados, se repara `__Installer` **antes** de descargarlos. Antes se descargaban los packs sin su subcarpeta `__Installer\DLC\<id>`, fallaba la validación final y había que reiniciar la aplicación para que funcionara.
+- Se evita el "éxito falso" cuando un archivo se extrae vacío o corrupto: ahora se comprueba que la extracción haya producido contenido antes de dar la instalación por completada (incluido `__Installer`).
+- Nuevas pruebas de regresión: `DLCIntegrityCheckerTests`, caso de sistema limpio en `DlcInstallationCoordinatorTests` y archivo vacío en `DlcInstallerIntegrationTests`.
+
 ### Notes
 
-- Verificación de esta versión: compilación `0 advertencias, 0 errores`; suite completa `72/72` pruebas superadas.
+- Verificación de esta versión: compilación `0 advertencias, 0 errores`; suite completa `79/79` pruebas superadas.
 
 ## [1.1.2] - 2026-10-05
 

@@ -22,10 +22,10 @@
 
     <!-- Versionado:
          NO lo dejes fijo aquÃ­ si vas a versionar por publish con /p:Version=...
-         Se dejan valores por defecto "1.1.3" y se sobreescriben al publicar -->
-    <Version Condition="'$(Version)'==''">1.1.3</Version>
-    <AssemblyVersion Condition="'$(AssemblyVersion)'==''">1.1.3.0</AssemblyVersion>
-    <FileVersion Condition="'$(FileVersion)'==''">1.1.3.0</FileVersion>
+         Se dejan valores por defecto "1.1.4" y se sobreescriben al publicar -->
+    <Version Condition="'$(Version)'==''">1.1.4</Version>
+    <AssemblyVersion Condition="'$(AssemblyVersion)'==''">1.1.4.0</AssemblyVersion>
+    <FileVersion Condition="'$(FileVersion)'==''">1.1.4.0</FileVersion>
     <InformationalVersion Condition="'$(InformationalVersion)'==''">$(Version)</InformationalVersion>
   </PropertyGroup>
 
@@ -103,5 +103,18 @@
   <Target Name="CopyModelsTxtAfterPublish" AfterTargets="Publish">
     <Copy SourceFiles="$(MSBuildProjectDirectory)\Models.txt" DestinationFolder="$(PublishDir)" SkipUnchangedFiles="true" />
   </Target>
+
+  <!-- Excluye la copia anidada del updater sin IA (carpeta ArdillaUpdater\) para que no
+       colisione con este proyecto: sin esto, sus .resx y .cs entran en los globs por
+       defecto y la compilacion falla (MSB3577 por recursos duplicados y clases repetidas). -->
+  <ItemGroup>
+    <Compile Remove="ArdillaUpdater\**\*.cs" />
+    <EmbeddedResource Remove="ArdillaUpdater\**\*.resx" />
+    <None Remove="ArdillaUpdater\**\*" />
+    <Content Remove="ArdillaUpdater\**\*" />
+    <Page Remove="ArdillaUpdater\**\*" />
+    <ApplicationDefinition Remove="ArdillaUpdater\**\*" />
+    <Resource Remove="ArdillaUpdater\**\*" />
+  </ItemGroup>
 
 </Project>

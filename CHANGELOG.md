@@ -10,7 +10,7 @@ El formato recomendado es:
 - `Removed` para cosas eliminadas
 - `Security` para mejoras de seguridad o integridad
 
-## [Unreleased]
+## [1.1.3] - 2026-10-16
 
 ### Added
 

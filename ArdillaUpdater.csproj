@@ -104,17 +104,4 @@
     <Copy SourceFiles="$(MSBuildProjectDirectory)\Models.txt" DestinationFolder="$(PublishDir)" SkipUnchangedFiles="true" />
   </Target>
 
-  <!-- Excluye la copia anidada del updater sin IA (carpeta ArdillaUpdater\) para que no
-       colisione con este proyecto: sin esto, sus .resx y .cs entran en los globs por
-       defecto y la compilacion falla (MSB3577 por recursos duplicados y clases repetidas). -->
-  <ItemGroup>
-    <Compile Remove="ArdillaUpdater\**\*.cs" />
-    <EmbeddedResource Remove="ArdillaUpdater\**\*.resx" />
-    <None Remove="ArdillaUpdater\**\*" />
-    <Content Remove="ArdillaUpdater\**\*" />
-    <Page Remove="ArdillaUpdater\**\*" />
-    <ApplicationDefinition Remove="ArdillaUpdater\**\*" />
-    <Resource Remove="ArdillaUpdater\**\*" />
-  </ItemGroup>
-
 </Project>

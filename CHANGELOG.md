@@ -10,6 +10,35 @@ El formato recomendado es:
 - `Removed` para cosas eliminadas
 - `Security` para mejoras de seguridad o integridad
 
+## [1.1.5] - 2026-10-17
+
+### Added
+
+- **Streaming en la interfaz del asistente**: la respuesta se escribe en el chat en tiempo real durante **todas las vueltas del bucle agéntico**, con detección para no duplicar la respuesta final.
+- **Persistencia de la conversación**: la charla se guarda en `ai_conversation.json` junto al ejecutable y se restaura al volver a abrir la ventana; **instancia única** del asistente (no se abren varias ventanas a la vez).
+- **Catálogo real como referencia**: `recomendar_packs` añade la disponibilidad real de cada pack y `seleccionar_packs_para_instalar` **valida los IDs contra el catálogo** (descarta los que el modelo "invente").
+- **Diagnóstico mejorado de errores de The Sims 4**: `Sims4ErrorAnalyzer` extrae el tipo de excepción y el **mod sospechoso** de `lastException.txt`, con extracto y detección de `lastCrash.txt`.
+- **Ajustes avanzados**: temperatura y `num_ctx` editables en la ventana de Ajustes, con validación del modelo contra `/api/tags` al probar la conexión.
+- **Botones de utilidad**: 📋 *Copiar última respuesta* y 💾 *Exportar chat* (diálogo "Guardar como" en `.txt` o `.md`).
+- **Notas técnicas internas**: los errores de conexión/timeout ya no entran al historial como si fueran respuestas de la IA; se guardan como nota `system` que no se muestra ni se restaura en el chat.
+- Pruebas nuevas: `AiConversationStoreTests` y cobertura adicional de poda de historial.
+
+### Changed
+
+- La poda del historial pasa a **presupuesto de caracteres** (`MaxContextChars` = 24000, salidas de herramienta recortadas a `MaxToolMessageChars` = 4000) sin romper el emparejamiento `assistant` ↔ `tool`.
+- `num_ctx` por defecto a **8192** (antes fijo en 8192 sin ser configurable) y configurable desde Ajustes.
+- Interfaz con **escalado DPI correcto** (`AutoScaleMode.Dpi`): cabecera con los 4 botones (Ajustes, Copiar, Exportar, Limpiar) en una fila reposicionada dinámicamente para no quedar recortada a 100%/150% de escala, y panel inferior con Enviar y Detener **sin solaparse**.
+
+### Fixed
+
+- Los mensajes técnicos de error (`⚠️`, `❌`, etc.) se dejaban de registrar como respuesta del asistente, contaminando el historial y la conversación persistida.
+- Botones de la cabecera desaparecidos a escala 150% (panel con `Dock` + `AutoSize` + `WrapContents` recortaba la segunda fila) y botones Enviar/Detener solapados (área de 84 px para 96 px de botones).
+- Restauración de conversación: los mensajes `system` internos ya no aparecen en el chat al reabrir la ventana.
+
+### Notes
+
+- Verificación de esta versión: compilación `0 advertencias, 0 errores`; suite completa `96/96` pruebas superadas. Prueba manual con Ollama a escala 100% y 150%: cabecera y botones Enviar/Detener correctos.
+
 ## [1.1.4] - 2026-10-17
 
 ### Fixed

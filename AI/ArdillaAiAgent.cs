@@ -67,11 +67,18 @@ namespace ArdillaUpdater.AI
             };
         }
 
+        /// <summary>
+        /// Procesa un mensaje del usuario con el bucle agéntico (máximo 8 vueltas).
+        /// <paramref name="onChunkReceived"/> recibe el texto a medida que el modelo lo genera
+        /// (streaming) y <paramref name="onAssistantMessageStarted"/> avisa de que empieza un
+        /// mensaje nuevo del asistente (cada vuelta del bucle es un mensaje distinto).
+        /// </summary>
         public async Task<string> ProcessUserMessageAsync(
             string userInput,
             Action<string>? onStatusUpdate = null,
             Action<string>? onChunkReceived = null,
-            CancellationToken cancellationToken = default)
+            CancellationToken cancellationToken = default,
+            Action? onAssistantMessageStarted = null)
         {
             var trimmed = userInput.Trim();
             _aiService.AddUserMessage(trimmed);
@@ -95,13 +102,26 @@ namespace ArdillaUpdater.AI
             while (loopCount < 8)
             {
                 loopCount++;
+
+                // Cada vuelta produce un mensaje nuevo del asistente: se avisa a la UI
+                // para que abra un bloque distinto y el texto se vea en streaming.
+                onAssistantMessageStarted?.Invoke();
                 onStatusUpdate?.Invoke(loopCount == 1 ? "Analizando tu consulta..." : "Procesando información de Ardilla...");
 
-                var streamCallback = loopCount == 1 ? onChunkReceived : null;
                 var (aiText, toolCalls) = await _aiService.SendChatIterationAsync(
-                    systemPrompt, streamCallback, _tools, cancellationToken).ConfigureAwait(false);
+                    systemPrompt, onChunkReceived, _tools, cancellationToken).ConfigureAwait(false);
 
-                _aiService.AddAssistantMessageWithToolCalls(aiText, toolCalls);
+                bool isErrorResponse = !string.IsNullOrEmpty(aiText) && (aiText.StartsWith("⚠️", StringComparison.Ordinal) || aiText.StartsWith("❌", StringComparison.Ordinal) || aiText.StartsWith("🌐", StringComparison.Ordinal) || aiText.StartsWith("🛑", StringComparison.Ordinal) || aiText.StartsWith("⏳", StringComparison.Ordinal));
+
+                if (!isErrorResponse)
+                {
+                    _aiService.AddAssistantMessageWithToolCalls(aiText, toolCalls);
+                }
+                else
+                {
+                    _aiService.AddTechnicalNote(aiText);
+                }
+
                 toolCalls ??= TryRecoverToolCallsFromPlainText(aiText);
 
                 if (toolCalls == null || !toolCalls.Any())
@@ -143,11 +163,11 @@ namespace ArdillaUpdater.AI
 
                             case "recomendar_packs":
                                 string tematica = args.tematica?.ToString() ?? "";
-                                executionResult = RecommendPacks(tematica);
+                                executionResult = await BuildRecommendationAsync(tematica, cancellationToken).ConfigureAwait(false);
                                 break;
 
                             case "seleccionar_packs_para_instalar":
-                                executionResult = SelectPacksForDownload(args);
+                                executionResult = await SelectPacksForDownloadAsync(args, cancellationToken).ConfigureAwait(false);
                                 break;
 
                             case "verificar_integridad_juego":
@@ -166,6 +186,12 @@ namespace ArdillaUpdater.AI
 
                     _aiService.AddToolResponseMessage(executionResult);
                 }
+            }
+
+            if (string.IsNullOrWhiteSpace(finalResponse))
+            {
+                finalResponse = "No pude completar la solicitud. Intenta reformular tu pregunta " +
+                                "o pedir una acción más concreta.";
             }
 
             return finalResponse;
@@ -319,18 +345,10 @@ namespace ArdillaUpdater.AI
             if (File.Exists(lastExceptionPath))
             {
                 var fi = new FileInfo(lastExceptionPath);
-                sb.AppendLine($"⚠️ 'lastException.txt' encontrado (Última modificación: {fi.LastWriteTime:yyyy-MM-dd HH:mm}):");
-                try
-                {
-                    var lines = File.ReadAllLines(lastExceptionPath);
-                    var snippet = string.Join("\n", lines.Take(25));
-                    sb.AppendLine("Fragmento del error:");
-                    sb.AppendLine(snippet);
-                }
-                catch (Exception ex)
-                {
-                    sb.AppendLine($"No se pudo leer lastException.txt: {ex.Message}");
-                }
+                sb.AppendLine($"⚠️ 'lastException.txt' encontrado (Última modificación: {fi.LastWriteTime:yyyy-MM-dd HH:mm})");
+                sb.AppendLine();
+                sb.AppendLine(Sims4ErrorAnalyzer.AnalyzeLastException(lastExceptionPath));
+                sb.AppendLine();
             }
             else
             {
@@ -347,9 +365,16 @@ namespace ArdillaUpdater.AI
             string modsDir = Path.Combine(foundDir, "Mods");
             if (Directory.Exists(modsDir))
             {
-                var modFiles = Directory.GetFiles(modsDir, "*.package", SearchOption.AllDirectories);
-                var ts4scripts = Directory.GetFiles(modsDir, "*.ts4script", SearchOption.AllDirectories);
-                sb.AppendLine($"Carpeta Mods detectada: {modFiles.Length} archivos .package y {ts4scripts.Length} scripts .ts4script.");
+                try
+                {
+                    var modFiles = Directory.GetFiles(modsDir, "*.package", SearchOption.AllDirectories);
+                    var ts4scripts = Directory.GetFiles(modsDir, "*.ts4script", SearchOption.AllDirectories);
+                    sb.AppendLine($"Carpeta Mods detectada: {modFiles.Length} archivos .package y {ts4scripts.Length} scripts .ts4script.");
+                }
+                catch (Exception ex)
+                {
+                    sb.AppendLine($"Carpeta Mods detectada, pero no se pudo enumerar: {ex.Message}");
+                }
             }
 
             return sb.ToString();
@@ -451,7 +476,52 @@ namespace ArdillaUpdater.AI
                    "5. GP05: Papás y Mamás (Parenthood) - Educación y crianza.";
         }
 
-        private string SelectPacksForDownload(dynamic args)
+        /// <summary>
+        /// Normaliza identificadores de packs: recorta espacios, pasa a mayúsculas, descarta
+        /// vacíos y elimina duplicados. Función pura, fácil de probar.
+        /// </summary>
+        internal static List<string> NormalizePackIds(IEnumerable<string> packIds)
+        {
+            return packIds
+                .Select(id => (id ?? string.Empty).Trim().ToUpperInvariant())
+                .Where(id => !string.IsNullOrEmpty(id))
+                .Distinct()
+                .ToList();
+        }
+
+        /// <summary>
+        /// Separa una lista de identificadores de packs en válidos y desconocidos según el
+        /// catálogo. Es una función pura para poder probarla sin depender de la red.
+        /// </summary>
+        internal static (List<string> Valid, List<string> Unknown) PartitionPackIds(
+            IEnumerable<string> packIds,
+            IReadOnlyCollection<string> knownIds)
+        {
+            var known = new HashSet<string>(knownIds, StringComparer.OrdinalIgnoreCase);
+            var valid = new List<string>();
+            var unknown = new List<string>();
+
+            foreach (var id in NormalizePackIds(packIds))
+            {
+                if (known.Contains(id))
+                {
+                    valid.Add(id);
+                }
+                else
+                {
+                    unknown.Add(id);
+                }
+            }
+
+            return (valid, unknown);
+        }
+
+        /// <summary>
+        /// Valida la lista de packs que propone la IA contra el catálogo real antes de
+        /// pasarla a la descarga selectiva. Si el catálogo no está disponible no se puede
+        /// validar, así que se respeta la lista tal cual (comportamiento anterior).
+        /// </summary>
+        private async Task<string> SelectPacksForDownloadAsync(dynamic args, CancellationToken cancellationToken)
         {
             var rawList = args.ids_packs as JArray;
             if (rawList == null || rawList.Count == 0)
@@ -459,14 +529,105 @@ namespace ArdillaUpdater.AI
                 return "No se especificaron identificadores de packs para seleccionar.";
             }
 
-            var packIds = rawList.Select(x => x.ToString().Trim().ToUpperInvariant()).Where(x => !string.IsNullOrEmpty(x)).ToList();
+            var packIds = rawList
+                .Select(x => x?.ToString() ?? string.Empty)
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .ToList();
+
             if (packIds.Count == 0)
             {
                 return "La lista de packs está vacía.";
             }
 
-            _onTriggerPacksSelection?.Invoke(packIds);
-            return $"Se han marcado {packIds.Count} packs para preparación y descarga: {string.Join(", ", packIds)}. La interfaz de descarga selectiva se ha actualizado.";
+            var names = await LoadNamesSafeAsync(cancellationToken).ConfigureAwait(false);
+
+            List<string> valid;
+            List<string> unknown;
+
+            if (names.Count > 0)
+            {
+                (valid, unknown) = PartitionPackIds(packIds, names.Keys.ToList());
+            }
+            else
+            {
+                // Sin catálogo no podemos validar: se respeta la lista original.
+                valid = NormalizePackIds(packIds);
+                unknown = new List<string>();
+            }
+
+            if (valid.Count == 0)
+            {
+                return $"Ninguno de los identificadores propuestos existe en el catálogo de Ardilla Updater ({string.Join(", ", unknown)}). " +
+                       "Usa solo identificadores reales (por ejemplo EP01, GP04, SP05); puedes obtenerlos con 'listar_dlcs_disponibles'.";
+            }
+
+            _onTriggerPacksSelection?.Invoke(valid);
+
+            string result = $"Se han marcado {valid.Count} packs para preparación y descarga: {string.Join(", ", valid)}. La interfaz de descarga selectiva se ha actualizado.";
+            if (unknown.Count > 0)
+            {
+                result += $" Nota: se descartaron identificadores que no existen en el catálogo: {string.Join(", ", unknown)}.";
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// Añade a una recomendación temática la disponibilidad real de cada pack mencionado,
+        /// para que la IA no sugiera packs que no existen en Ardilla Updater. Si no hay
+        /// catálogo (lista vacía) devuelve el texto original sin cambios.
+        /// </summary>
+        internal static string EnrichRecommendationWithCatalog(string baseText, IReadOnlyCollection<string> knownIds)
+        {
+            if (knownIds == null || knownIds.Count == 0)
+            {
+                return baseText;
+            }
+
+            var mentioned = Regex.Matches(baseText, @"\b(EP|GP|SP|FP)\d+\b", RegexOptions.IgnoreCase)
+                .Select(m => m.Value.ToUpperInvariant())
+                .Distinct()
+                .ToList();
+
+            if (mentioned.Count == 0)
+            {
+                return baseText;
+            }
+
+            var known = new HashSet<string>(knownIds, StringComparer.OrdinalIgnoreCase);
+            var available = mentioned.Where(known.Contains).ToList();
+            var notInCatalog = mentioned.Where(id => !known.Contains(id)).ToList();
+
+            var sb = new StringBuilder();
+            sb.AppendLine(baseText);
+            sb.AppendLine();
+            sb.AppendLine("Verificación contra el catálogo real de Ardilla Updater:");
+            sb.AppendLine(available.Count > 0
+                ? $"- Disponibles: {string.Join(", ", available)}."
+                : "- Ninguno de los packs sugeridos está en el catálogo actual.");
+            if (notInCatalog.Count > 0)
+            {
+                sb.AppendLine($"- No encontrados en el catálogo (no los recomiendes): {string.Join(", ", notInCatalog)}.");
+            }
+
+            return sb.ToString();
+        }
+
+        /// <summary>
+        /// Recomendación temática enriquecida con la disponibilidad real del catálogo.
+        /// Si el catálogo no carga, se devuelve la recomendación base.
+        /// </summary>
+        private async Task<string> BuildRecommendationAsync(string tematica, CancellationToken cancellationToken)
+        {
+            string baseText = RecommendPacks(tematica);
+
+            var names = await LoadNamesSafeAsync(cancellationToken).ConfigureAwait(false);
+            if (names.Count == 0)
+            {
+                return baseText;
+            }
+
+            return EnrichRecommendationWithCatalog(baseText, names.Keys.ToList());
         }
 
         internal static List<dynamic>? TryRecoverToolCallsFromPlainText(string text)

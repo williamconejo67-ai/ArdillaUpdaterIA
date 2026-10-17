@@ -1,10 +1,13 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.IO;
 using System.Linq;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using Newtonsoft.Json.Linq;
 
 namespace ArdillaUpdater.AI
 {
@@ -21,12 +24,22 @@ namespace ArdillaUpdater.AI
         private Button btnCancel = null!;
         private Button btnSettings = null!;
         private Button btnClear = null!;
+        private Button btnCopy = null!;
+        private Button btnExport = null!;
         private Label lblModelBadge = null!;
         private Label lblLiveStatus = null!;
         private FlowLayoutPanel flowChips = null!;
 
         private CancellationTokenSource? _currentCts;
         private volatile bool _closing;
+
+        // Streaming: guarda el texto del bloque actual para no duplicar la respuesta final.
+        private readonly StringBuilder _streamBuffer = new();
+        private bool _streamSegmentStarted;
+
+        // Fuentes reutilizadas (se crean una sola vez, no en cada mensaje).
+        private readonly Font _headerFont = new("Segoe UI Semibold", 10.5F, FontStyle.Bold);
+        private readonly Font _bodyFont = new("Segoe UI", 9.8F, FontStyle.Regular);
 
         internal AiAssistantForm(Form1 mainForm, DlcCatalogService dlcCatalog)
         {
@@ -42,7 +55,7 @@ namespace ArdillaUpdater.AI
             );
 
             InitializeComponent();
-            AppendWelcomeMessage();
+            RestoreConversation();
         }
 
         protected override void Dispose(bool disposing)
@@ -57,6 +70,12 @@ namespace ArdillaUpdater.AI
             }
 
             base.Dispose(disposing);
+
+            if (disposing)
+            {
+                _headerFont.Dispose();
+                _bodyFont.Dispose();
+            }
         }
 
         /// <summary>
@@ -90,6 +109,8 @@ namespace ArdillaUpdater.AI
         private void InitializeComponent()
         {
             Text = "Ardilla AI - Asistente Inteligente";
+            AutoScaleMode = AutoScaleMode.Dpi;
+            AutoScaleDimensions = new SizeF(96F, 96F);
             Width = 960;
             Height = 700;
             MinimumSize = new Size(800, 550);
@@ -124,49 +145,119 @@ namespace ArdillaUpdater.AI
                 Location = new Point(20, 42)
             };
 
-            var panelTopRight = new Panel
+            // Panel de botones superiores: SIN Dock (el Dock + AutoSize rompía el ancho y los
+            // botones se envolvían a una fila que quedaba recortada por la cabecera fija).
+            // Se posiciona a mano con el evento Layout: una sola fila, centrado verticalmente
+            // y sin pisar el título a cualquier escala de DPI.
+            var panelTopRight = new FlowLayoutPanel
             {
-                Dock = DockStyle.Right,
-                Width = 230,
-                BackColor = Color.Transparent
+                AutoSize = true,
+                BackColor = Color.Transparent,
+                FlowDirection = FlowDirection.LeftToRight,
+                WrapContents = false,
+                Padding = new Padding(4, 4, 4, 4),
+                Margin = new Padding(0)
             };
 
             btnSettings = new Button
             {
                 Text = "⚙️ Ajustes",
-                Width = 98,
-                Height = 36,
-                Location = new Point(12, 18),
+                AutoSize = true,
                 BackColor = Color.FromArgb(30, 110, 215),
                 ForeColor = Color.White,
                 FlatStyle = FlatStyle.Flat,
                 Cursor = Cursors.Hand,
-                Font = new Font("Segoe UI Semibold", 9F, FontStyle.Bold)
+                Font = new Font("Segoe UI Semibold", 9F, FontStyle.Bold),
+                Margin = new Padding(2, 2, 2, 2)
             };
             btnSettings.FlatAppearance.BorderSize = 0;
+            btnSettings.AutoSizeMode = AutoSizeMode.GrowAndShrink;
             btnSettings.Click += (_, __) => OpenSettings();
+
+            btnCopy = new Button
+            {
+                Text = "📋 Copiar última respuesta",
+                AutoSize = true,
+                BackColor = Color.FromArgb(30, 110, 215),
+                ForeColor = Color.White,
+                FlatStyle = FlatStyle.Flat,
+                Cursor = Cursors.Hand,
+                Font = new Font("Segoe UI Semibold", 9F, FontStyle.Bold),
+                Margin = new Padding(2, 2, 2, 2)
+            };
+            btnCopy.FlatAppearance.BorderSize = 0;
+            btnCopy.AutoSizeMode = AutoSizeMode.GrowAndShrink;
+            btnCopy.Click += (_, __) => CopyLastAssistantResponse();
+
+            btnExport = new Button
+            {
+                Text = "💾 Exportar chat",
+                AutoSize = true,
+                BackColor = Color.FromArgb(30, 110, 215),
+                ForeColor = Color.White,
+                FlatStyle = FlatStyle.Flat,
+                Cursor = Cursors.Hand,
+                Font = new Font("Segoe UI Semibold", 9F, FontStyle.Bold),
+                Margin = new Padding(2, 2, 2, 2)
+            };
+            btnExport.FlatAppearance.BorderSize = 0;
+            btnExport.AutoSizeMode = AutoSizeMode.GrowAndShrink;
+            btnExport.Click += (_, __) => ExportChat();
 
             btnClear = new Button
             {
                 Text = "🧹 Limpiar",
-                Width = 96,
-                Height = 36,
-                Location = new Point(118, 18),
+                AutoSize = true,
                 BackColor = Color.FromArgb(30, 110, 215),
                 ForeColor = Color.White,
                 FlatStyle = FlatStyle.Flat,
                 Cursor = Cursors.Hand,
-                Font = new Font("Segoe UI Semibold", 9F, FontStyle.Bold)
+                Font = new Font("Segoe UI Semibold", 9F, FontStyle.Bold),
+                Margin = new Padding(2, 2, 2, 2)
             };
             btnClear.FlatAppearance.BorderSize = 0;
+            btnClear.AutoSizeMode = AutoSizeMode.GrowAndShrink;
             btnClear.Click += (_, __) => ClearChat();
 
             panelTopRight.Controls.Add(btnSettings);
+            panelTopRight.Controls.Add(btnCopy);
+            panelTopRight.Controls.Add(btnExport);
             panelTopRight.Controls.Add(btnClear);
 
             panelTop.Controls.Add(panelTopRight);
             panelTop.Controls.Add(lblTitle);
             panelTop.Controls.Add(lblModelBadge);
+
+            // Coloca los botones en una sola fila a la derecha, centrados verticalmente en la
+            // cabecera. Si no cabe junto al título, se desplaza hacia el centro (izquierda)
+            // para que nunca queden ocultos ni recortados, a cualquier escala de DPI.
+            void PosicionarBotonesCabecera()
+            {
+                if (panelTopRight.Width == 0 || panelTopRight.Height == 0)
+                {
+                    return;
+                }
+
+                int margenDerecho = 18;
+                // El botón nunca debe pisar ni el título ni el badge del modelo (el que resulte más ancho).
+                int margenTitulo = Math.Max(12, Math.Max(lblTitle.Right, lblModelBadge.Right) + 12);
+                int x = panelTop.ClientSize.Width - panelTopRight.Width - margenDerecho;
+                if (x < margenTitulo)
+                {
+                    x = margenTitulo;
+                }
+
+                int y = Math.Max(2, (panelTop.ClientSize.Height - panelTopRight.Height) / 2);
+                var nuevaPos = new Point(x, y);
+                if (panelTopRight.Location != nuevaPos)
+                {
+                    panelTopRight.Location = nuevaPos;
+                }
+            }
+
+            panelTop.Layout += (_, __) => PosicionarBotonesCabecera();
+            panelTopRight.Layout += (_, __) => PosicionarBotonesCabecera();
+            PosicionarBotonesCabecera();
 
             // ================= QUICK CHIPS =================
             flowChips = new FlowLayoutPanel
@@ -190,9 +281,11 @@ namespace ArdillaUpdater.AI
             var panelBottom = new Panel
             {
                 Dock = DockStyle.Bottom,
-                Height = 110,
+                // Altura suficiente para que Enviar + Detener quepan SIN solaparse
+                // (84 px de área no alcanzaban para 54 + 42; ahora hay 104 px).
+                Height = 170,
                 BackColor = Color.White,
-                Padding = new Padding(16, 8, 16, 12)
+                Padding = new Padding(16, 10, 16, 14)
             };
 
             lblLiveStatus = new Label
@@ -222,15 +315,17 @@ namespace ArdillaUpdater.AI
             var panelButtons = new Panel
             {
                 Dock = DockStyle.Right,
-                Width = 140,
-                Padding = new Padding(8, 0, 0, 0)
+                Width = 160,
+                Padding = new Padding(8, 8, 0, 8)
             };
 
             btnSend = new Button
             {
                 Text = "➤ Enviar",
+                // Dock Top: la separación con Detener la da el espacio libre del panel,
+                // no Margin (Dock ignora Margin en WinForms).
                 Dock = DockStyle.Top,
-                Height = 44,
+                Height = 54,
                 BackColor = Color.FromArgb(15, 86, 179),
                 ForeColor = Color.White,
                 FlatStyle = FlatStyle.Flat,
@@ -244,7 +339,7 @@ namespace ArdillaUpdater.AI
             {
                 Text = "Detener",
                 Dock = DockStyle.Bottom,
-                Height = 30,
+                Height = 42,
                 BackColor = Color.FromArgb(240, 240, 240),
                 ForeColor = Color.FromArgb(160, 40, 40),
                 FlatStyle = FlatStyle.Flat,
@@ -371,11 +466,17 @@ namespace ArdillaUpdater.AI
                 string response = await _agent.ProcessUserMessageAsync(
                     message,
                     status => SetStatus(status),
-                    null,
-                    ct
+                    AppendAssistantChunk,
+                    ct,
+                    BeginAssistantMessage
                 );
 
-                AppendMessage("Ardilla AI", response, Color.FromArgb(15, 86, 179));
+                // Si el último bloque no recibió texto por streaming (por ejemplo, una
+                // respuesta que solo usó herramientas), se pinta la respuesta completa.
+                if (!WasShownByStreaming(response))
+                {
+                    AppendMessage("Ardilla AI", response, Color.FromArgb(15, 86, 179));
+                }
                 SetStatus("Listo.");
             }
             catch (OperationCanceledException)
@@ -391,6 +492,10 @@ namespace ArdillaUpdater.AI
             finally
             {
                 DisposeCurrentCts(cancel: false);
+
+                // Se guarda el historial para no perder la conversación al cerrar la ventana.
+                AiConversationStore.Save(_aiService.GetHistory());
+
                 if (!_closing)
                 {
                     SetUiBusy(false);
@@ -417,6 +522,8 @@ namespace ArdillaUpdater.AI
             btnCancel.Enabled = busy;
             flowChips.Enabled = !busy;
             btnClear.Enabled = !busy;
+            btnCopy.Enabled = !busy;
+            btnExport.Enabled = !busy;
         }
 
         private void SetStatus(string status)
@@ -464,25 +571,269 @@ namespace ArdillaUpdater.AI
                 return;
             }
 
+            AppendHeader(sender, senderColor);
+            AppendRawText(text + "\n");
+            rtbChat.ScrollToCaret();
+        }
+
+        /// <summary>
+        /// Escribe la cabecera de un mensaje ("[Quién] - hora"). Debe llamarse en el hilo de UI.
+        /// </summary>
+        private void AppendHeader(string sender, Color senderColor)
+        {
             rtbChat.SelectionStart = rtbChat.TextLength;
             rtbChat.SelectionLength = 0;
-
-            rtbChat.SelectionFont = new Font("Segoe UI Semibold", 10.5F, FontStyle.Bold);
+            rtbChat.SelectionFont = _headerFont;
             rtbChat.SelectionColor = senderColor;
             rtbChat.AppendText($"\n[{sender}] - {DateTime.Now:HH:mm}\n");
+        }
 
-            rtbChat.SelectionFont = new Font("Segoe UI", 9.8F, FontStyle.Regular);
+        /// <summary>
+        /// Escribe texto del cuerpo de un mensaje. Debe llamarse en el hilo de UI.
+        /// </summary>
+        private void AppendRawText(string text)
+        {
+            rtbChat.SelectionStart = rtbChat.TextLength;
+            rtbChat.SelectionLength = 0;
+            rtbChat.SelectionFont = _bodyFont;
             rtbChat.SelectionColor = Color.FromArgb(30, 35, 42);
-            rtbChat.AppendText(text + "\n");
+            rtbChat.AppendText(text);
+        }
 
+        /// <summary>
+        /// Avisa de que empieza un mensaje nuevo del asistente (una vuelta del agente).
+        /// Se limpiaba el buffer para saber si la respuesta final ya se mostró por streaming.
+        /// </summary>
+        private void BeginAssistantMessage()
+        {
+            if (_closing || IsDisposed) return;
+
+            if (InvokeRequired)
+            {
+                try
+                {
+                    Invoke(new Action(BeginAssistantMessage));
+                }
+                catch (ObjectDisposedException)
+                {
+                    // El formulario se cerró mientras llegaba el aviso.
+                }
+                catch (InvalidOperationException)
+                {
+                    // El handle ya no existe (formulario cerrado).
+                }
+                return;
+            }
+
+            _streamSegmentStarted = false;
+            _streamBuffer.Clear();
+            SetStatus("✍️ Ardilla AI está respondiendo...");
+        }
+
+        /// <summary>
+        /// Recibe un fragmento de texto del modelo y lo va escribiendo en el chat.
+        /// Se ejecuta en un hilo de fondo, por eso se envía al hilo de UI.
+        /// </summary>
+        private void AppendAssistantChunk(string chunk)
+        {
+            if (string.IsNullOrEmpty(chunk) || _closing || IsDisposed) return;
+
+            if (InvokeRequired)
+            {
+                try
+                {
+                    Invoke(new Action(() => AppendAssistantChunk(chunk)));
+                }
+                catch (ObjectDisposedException)
+                {
+                    // El formulario se cerró durante el streaming.
+                }
+                catch (InvalidOperationException)
+                {
+                    // El handle ya no existe (formulario cerrado).
+                }
+                return;
+            }
+
+            if (!_streamSegmentStarted)
+            {
+                AppendHeader("Ardilla AI", Color.FromArgb(15, 86, 179));
+                _streamSegmentStarted = true;
+            }
+
+            _streamBuffer.Append(chunk);
+            AppendRawText(chunk);
             rtbChat.ScrollToCaret();
+        }
+
+        /// <summary>
+        /// Indica si la respuesta final ya quedó escrita por el streaming, para no duplicarla.
+        /// Debe llamarse en el hilo de UI (justo después del await).
+        /// </summary>
+        private bool WasShownByStreaming(string response)
+        {
+            if (_streamBuffer.Length == 0)
+            {
+                return false;
+            }
+
+            return string.Equals(_streamBuffer.ToString().Trim(), response.Trim(), StringComparison.Ordinal);
         }
 
         private void ClearChat()
         {
             _aiService.ClearHistory();
+            AiConversationStore.Clear();
             rtbChat.Clear();
             AppendWelcomeMessage();
+            SetStatus("Listo para ayudarte.");
+        }
+
+        private void CopyLastAssistantResponse()
+        {
+            try
+            {
+                // Buscar la última respuesta del asistente en el RichTextBox.
+                string text = rtbChat.Text;
+                int lastHeader = text.LastIndexOf("[Ardilla AI] -", StringComparison.Ordinal);
+                if (lastHeader < 0)
+                {
+                    MessageBox.Show(this, "No hay ninguna respuesta de Ardilla AI para copiar.", "Copiar", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    return;
+                }
+
+                int start = text.IndexOf("\n", lastHeader, StringComparison.Ordinal);
+                if (start < 0)
+                {
+                    start = lastHeader;
+                }
+                else
+                {
+                    start++;
+                }
+
+                int end = text.IndexOf("\n[", start, StringComparison.Ordinal);
+                if (end < 0)
+                {
+                    end = text.Length;
+                }
+
+                string content = text.Substring(start, end - start).Trim();
+                if (string.IsNullOrWhiteSpace(content))
+                {
+                    MessageBox.Show(this, "La última respuesta está vacía.", "Copiar", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    return;
+                }
+
+                Clipboard.SetText(content);
+                SetStatus("Última respuesta copiada al portapapeles.");
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, $"No se pudo copiar: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
+        }
+
+        /// <summary>
+        /// Exporta la conversación completa a un archivo de texto (.txt) elegido por el usuario.
+        /// </summary>
+        private void ExportChat()
+        {
+            try
+            {
+                string text = rtbChat.Text;
+                if (string.IsNullOrWhiteSpace(text))
+                {
+                    MessageBox.Show(this, "No hay ninguna conversación para exportar.", "Exportar", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    return;
+                }
+
+                using var saveDialog = new SaveFileDialog
+                {
+                    Title = "Exportar conversación de Ardilla AI",
+                    Filter = "Archivo de texto (*.txt)|*.txt|Markdown (*.md)|*.md",
+                    FileName = $"ardilla_ai_chat_{DateTime.Now:yyyyMMdd_HHmm}.txt",
+                    DefaultExt = "txt",
+                    AddExtension = true,
+                    OverwritePrompt = true
+                };
+
+                if (saveDialog.ShowDialog(this) != DialogResult.OK)
+                {
+                    return;
+                }
+
+                File.WriteAllText(saveDialog.FileName, text, Encoding.UTF8);
+                SetStatus($"Conversación exportada a: {saveDialog.FileName}");
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, $"No se pudo exportar la conversación: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
+        }
+
+        /// <summary>
+        /// Al abrir la ventana, recupera la conversación guardada en disco. Si no hay nada
+        /// guardado, muestra el mensaje de bienvenida.
+        /// </summary>
+        private void RestoreConversation()
+        {
+            var history = AiConversationStore.Load();
+            if (history.Count == 0)
+            {
+                AppendWelcomeMessage();
+                return;
+            }
+
+            _aiService.ReplaceHistory(history);
+
+            AppendMessage(
+                "Sistema",
+                "Conversación anterior restaurada. El asistente recuerda el contexto; pulsa 🧹 Limpiar para empezar de cero.",
+                Color.FromArgb(120, 120, 120)
+            );
+
+            foreach (var message in history)
+            {
+                string role = ArdillaAiService.GetRole(message);
+                string content = GetMessageContent(message);
+                if (string.IsNullOrWhiteSpace(content))
+                {
+                    continue;
+                }
+
+                if (role == "system")
+                {
+                    // Ocultar notas técnicas internas al restaurar la conversación.
+                    if (content.IndexOf("[NOTA TÉCNICA", StringComparison.OrdinalIgnoreCase) >= 0)
+                    {
+                        continue;
+                    }
+                    continue;
+                }
+
+                if (role == "user")
+                {
+                    AppendMessage("Tú", content, Color.FromArgb(40, 50, 60));
+                }
+                else if (role == "assistant")
+                {
+                    AppendMessage("Ardilla AI", content, Color.FromArgb(15, 86, 179));
+                }
+            }
+        }
+
+        private static string GetMessageContent(object message)
+        {
+            try
+            {
+                var token = message as JToken ?? JToken.FromObject(message);
+                return token["content"]?.ToString() ?? string.Empty;
+            }
+            catch
+            {
+                return string.Empty;
+            }
         }
 
         private void OpenSettings()

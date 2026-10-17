@@ -61,6 +61,30 @@ namespace ArdillaUpdater.AI
             _conversationHistory.Clear();
         }
 
+        /// <summary>Devuelve una copia del historial actual (para guardarlo en disco).</summary>
+        public IReadOnlyList<object> GetHistory()
+        {
+            return _conversationHistory.ToList();
+        }
+
+        /// <summary>Reemplaza el historial (por ejemplo, al restaurar una conversación guardada).</summary>
+        public void ReplaceHistory(IEnumerable<object>? messages)
+        {
+            _conversationHistory.Clear();
+            if (messages == null)
+            {
+                return;
+            }
+
+            foreach (var message in messages)
+            {
+                if (message != null)
+                {
+                    _conversationHistory.Add(message);
+                }
+            }
+        }
+
         public void AddUserMessage(string message)
         {
             _conversationHistory.Add(new { role = "user", content = message });
@@ -87,11 +111,27 @@ namespace ArdillaUpdater.AI
             _conversationHistory.Add(msg);
         }
 
+        /// <summary>
+        /// Añade un mensaje técnico al historial, marcado para que no se trate como una respuesta
+        /// válida del asistente a menos que sea necesario. Esto evita que errores técnicos
+        /// acaben apareciendo como "respuesta de Ardilla AI" en el historial persistido.
+        /// </summary>
+        public void AddTechnicalNote(string note)
+        {
+            if (string.IsNullOrWhiteSpace(note))
+            {
+                return;
+            }
+
+            _conversationHistory.Add(new { role = "system", content = $"[NOTA TÉCNICA NO MOSTRAR COMO RESPUESTA]: {note}" });
+        }
+
         public async Task<(string ResponseText, List<dynamic>? ToolCalls)> SendChatIterationAsync(
             string? systemPrompt = null,
             Action<string>? onChunkReceived = null,
             object[]? tools = null,
-            CancellationToken cancellationToken = default)
+            CancellationToken cancellationToken = default,
+            bool isTechnicalErrorResponse = false)
         {
             if (string.IsNullOrWhiteSpace(_config.Endpoint))
             {
@@ -101,42 +141,32 @@ namespace ArdillaUpdater.AI
             try
             {
                 var client = _httpClient;
+                var configLocal2 = _config;
 
-                if (!string.IsNullOrWhiteSpace(_config.ApiKey))
+                if (!string.IsNullOrWhiteSpace(configLocal2.ApiKey))
                 {
                     client.DefaultRequestHeaders.Authorization =
-                        new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", _config.ApiKey);
+                        new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", configLocal2.ApiKey);
                 }
 
-                var url = _config.Endpoint.TrimEnd('/') + "/api/chat";
+                var configLocal = _config;
+                var url = configLocal.Endpoint.TrimEnd('/') + "/api/chat";
 
-                // Poda de historial para no saturar la ventana de contexto
+                // Poda del historial: se conservan los mensajes más recientes que caben en el
+                // presupuesto sin romper el emparejamiento 'assistant' con tool_calls / 'tool'.
                 int maxMsgs = Math.Max(4, _config.MaxHistoryMessages * 2);
-                int startIdx = Math.Max(0, _conversationHistory.Count - maxMsgs);
-
-                while (startIdx > 0 && startIdx < _conversationHistory.Count)
-                {
-                    var msgDynamic = JObject.FromObject(_conversationHistory[startIdx]);
-                    if (msgDynamic["role"]?.ToString() == "tool")
-                    {
-                        startIdx--;
-                    }
-                    else
-                    {
-                        break;
-                    }
-                }
+                int startIdx = ComputeHistoryStartIndex(_conversationHistory, maxMsgs, _config.MaxContextChars);
 
                 var historyToSend = _conversationHistory
                     .Skip(startIdx)
-                    .Select(NormalizeHistoryMessage)
+                    .Select(message => NormalizeHistoryMessage(message, _config.MaxToolMessageChars))
                     .ToList();
 
                 if (!string.IsNullOrEmpty(systemPrompt))
                 {
                     if (historyToSend.Any())
                     {
-                        var firstRole = JObject.FromObject(historyToSend[0])["role"]?.ToString();
+                        var firstRole = GetRole(historyToSend[0]);
                         if (firstRole == "system")
                             historyToSend[0] = new { role = "system", content = systemPrompt };
                         else
@@ -158,7 +188,7 @@ namespace ArdillaUpdater.AI
                     ["options"] = new
                     {
                         temperature = _config.Temperature,
-                        num_ctx = 8192
+                        num_ctx = _config.NumCtx > 0 ? _config.NumCtx : 8192
                     }
                 };
 
@@ -258,13 +288,14 @@ namespace ArdillaUpdater.AI
             }
         }
 
-        private static async Task<HttpResponseMessage> SendChatRequestWithFallbackAsync(
+        private async Task<HttpResponseMessage> SendChatRequestWithFallbackAsync(
             HttpClient client,
             string url,
             Dictionary<string, object> body,
             string json,
             CancellationToken cancellationToken)
         {
+            var configInstanceLocal = _config;
             async Task<HttpResponseMessage> SendAsync(string requestJson)
             {
                 using var request = new HttpRequestMessage(HttpMethod.Post, url)
@@ -287,7 +318,11 @@ namespace ArdillaUpdater.AI
             body.Remove("tools");
             if (isRunnerFailure)
             {
-                body["options"] = new { temperature = 0.5, num_ctx = 4096 };
+                body["options"] = new
+                {
+                    temperature = configInstanceLocal.Temperature,
+                    num_ctx = configInstanceLocal.NumCtx > 0 ? configInstanceLocal.NumCtx : 4096
+                };
             }
 
             return await SendAsync(JsonConvert.SerializeObject(body, Formatting.None)).ConfigureAwait(false);
@@ -340,11 +375,114 @@ namespace ArdillaUpdater.AI
             return normalized;
         }
 
-        private static object NormalizeHistoryMessage(object message)
+        /// <summary>
+        /// Devuelve el rol ('user', 'assistant', 'tool', 'system') de un mensaje del historial.
+        /// Acepta objetos anónimos, diccionarios o tokens de JSON.
+        /// </summary>
+        internal static string GetRole(object message)
+        {
+            try
+            {
+                var token = message as JToken ?? JToken.FromObject(message);
+                return token["role"]?.ToString() ?? string.Empty;
+            }
+            catch
+            {
+                return string.Empty;
+            }
+        }
+
+        /// <summary>
+        /// Calcula desde qué índice enviar el historial: conserva los mensajes más recientes
+        /// que caben en <paramref name="maxChars"/> caracteres (además del límite de número de
+        /// mensajes) sin empezar nunca en un mensaje 'tool', porque este necesita el
+        /// 'assistant' con 'tool_calls' que lo precede. Es una función pura, fácil de probar.
+        /// </summary>
+        internal static int ComputeHistoryStartIndex(IReadOnlyList<object> history, int maxMessages, int maxChars)
+        {
+            if (history == null || history.Count == 0)
+            {
+                return 0;
+            }
+
+            int start = Math.Max(0, history.Count - Math.Max(1, maxMessages));
+
+            // No empezar en un mensaje 'tool': retroceder hasta su 'assistant'.
+            while (start > 0 && GetRole(history[start]) == "tool")
+            {
+                start--;
+            }
+
+            if (maxChars <= 0)
+            {
+                return start;
+            }
+
+            var sizes = new long[history.Count];
+            for (int i = 0; i < history.Count; i++)
+            {
+                sizes[i] = SerializedLength(history[i]);
+            }
+
+            long windowChars = 0;
+            for (int i = start; i < history.Count; i++)
+            {
+                windowChars += sizes[i];
+            }
+
+            // Si el recorte se pasa del presupuesto, se sueltan grupos completos desde el
+            // principio (nunca a medias para no dejar un 'tool' huérfano).
+            while (windowChars > maxChars && start < history.Count)
+            {
+                int next = start + 1;
+                while (next < history.Count && GetRole(history[next]) == "tool")
+                {
+                    next++;
+                }
+
+                if (next >= history.Count)
+                {
+                    break;
+                }
+
+                for (int i = start; i < next; i++)
+                {
+                    windowChars -= sizes[i];
+                }
+
+                start = next;
+            }
+
+            return start;
+        }
+
+        private static long SerializedLength(object message)
+        {
+            try
+            {
+                return JsonConvert.SerializeObject(message, Formatting.None).Length;
+            }
+            catch
+            {
+                return 0;
+            }
+        }
+
+        private static object NormalizeHistoryMessage(object message, int maxToolMessageChars = 0)
         {
             var token = message as JToken ?? JToken.FromObject(message);
             var role = token["role"]?.ToString() ?? string.Empty;
             var content = token["content"]?.ToString() ?? string.Empty;
+
+            // Las salidas de herramientas pueden ser enormes: se recortan al enviarlas.
+            if (role == "tool" && maxToolMessageChars > 0 && content.Length > maxToolMessageChars)
+            {
+                return new Dictionary<string, object>
+                {
+                    ["role"] = role,
+                    ["content"] = content.Substring(0, maxToolMessageChars) + "\n…(salida recortada para ahorrar contexto)"
+                };
+            }
 
             if (role != "assistant")
                 return message;

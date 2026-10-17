@@ -13,6 +13,24 @@ namespace ArdillaUpdater.AI
         public int MaxHistoryMessages { get; set; } = 20;
         public double Temperature { get; set; } = 0.5;
 
+        /// <summary>
+        /// Contexto de tokens solicitado al servidor (num_ctx). Determina cuánto historial
+        /// puede tener el modelo en memoria. Valor por defecto 8192.
+        /// </summary>
+        public int NumCtx { get; set; } = 8192;
+
+        /// <summary>
+        /// Presupuesto aproximado de caracteres del historial que se envía al modelo. Evita
+        /// que las conversaciones largas saturen la ventana de contexto.
+        /// </summary>
+        public int MaxContextChars { get; set; } = 24000;
+
+        /// <summary>
+        /// Recorte máximo de cada salida de herramienta antes de enviarla al modelo. Estas
+        /// salidas (listas de DLC, informes...) pueden ser enormes y consumir todo el contexto.
+        /// </summary>
+        public int MaxToolMessageChars { get; set; } = 4000;
+
         private static string DefaultConfigPath => Path.Combine(
             AppDomain.CurrentDomain.BaseDirectory,
             "ai_config.json"

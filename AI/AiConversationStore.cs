@@ -7,17 +7,19 @@ using Newtonsoft.Json.Linq;
 namespace ArdillaUpdater.AI
 {
     /// <summary>
-    /// Guarda y recupera la conversación del asistente en un archivo JSON junto al ejecutable,
-    /// para no perderla al cerrar la ventana. Es una clase pequeña y sin estado.
+    /// Guarda y recupera la conversación del asistente en un archivo JSON dentro de
+    /// %LOCALAPPDATA%\ArdillaUpdater (antes era junto al .exe, carpeta a menudo
+    /// protegida), para no perderla al cerrar la ventana. Clase pequeña y sin estado.
     /// </summary>
     internal static class AiConversationStore
     {
         private const string FileName = "ai_conversation.json";
 
-        internal static string DefaultPath => Path.Combine(AppDomain.CurrentDomain.BaseDirectory, FileName);
+        // PR #1 auditoría 2026-10: de BaseDirectory a %LOCALAPPDATA%.
+        internal static string DefaultPath => Path.Combine(AppPaths.UserDataDir, FileName);
 
-        /// <summary>Guarda el historial indicado. Si falla, no hace ruido (la app sigue funcionando).</summary>
-        public static void Save(IEnumerable<object>? messages, string? path = null)
+        /// <summary>Guarda el historial indicado. Si falla, no rompe la app (se informa en el log).</summary>
+        public static void Save(IEnumerable<object>? messages, string? path = null, Action<string>? log = null)
         {
             try
             {
@@ -36,21 +38,36 @@ namespace ArdillaUpdater.AI
                 }
 
                 var json = JsonConvert.SerializeObject(list, Formatting.Indented);
-                File.WriteAllText(target, json);
+
+                // PR #1 auditoría 2026-10: escritura atómica (.tmp + reemplazo) y carpeta
+                // por si acaso; si algo falla a mitad, el historial anterior no se corrompe.
+                string? dir = Path.GetDirectoryName(target);
+                if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+                AppPaths.SaveJsonAtomic(target, json);
             }
-            catch
+            catch (Exception ex)
             {
                 // Un fallo al guardar no debe romper la conversación en curso.
+                log?.Invoke($"No se pudo guardar la conversación: {ex.Message}");
             }
         }
 
         /// <summary>Carga el historial guardado. Si no existe o está corrupto, devuelve una lista vacía.</summary>
-        public static List<object> Load(string? path = null)
+        public static List<object> Load(string? path = null, Action<string>? log = null)
         {
             var result = new List<object>();
             try
             {
                 string target = path ?? DefaultPath;
+
+                // PR #1 auditoría 2026-10: migración (solo ruta por defecto) del historial
+                // antiguo que vivía junto al .exe a %LOCALAPPDATA%, una sola vez.
+                if (path == null)
+                {
+                    AppPaths.TryMigrateLegacyFile(
+                        Path.Combine(AppDomain.CurrentDomain.BaseDirectory, FileName), target, log);
+                }
+
                 if (!File.Exists(target))
                 {
                     return result;
@@ -71,9 +88,11 @@ namespace ArdillaUpdater.AI
                     }
                 }
             }
-            catch
+            catch (Exception ex)
             {
-                // Archivo corrupto o ilegible: se ignora y se empieza de cero.
+                // Archivo corrupto o ilegible: se empieza de cero, pero avisando por el
+                // log antes de que el próximo guardado lo sobrescriba.
+                log?.Invoke($"Conversación ilegible ({ex.Message}); se empieza de cero.");
             }
 
             return result;

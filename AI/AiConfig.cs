@@ -31,10 +31,12 @@ namespace ArdillaUpdater.AI
         /// </summary>
         public int MaxToolMessageChars { get; set; } = 4000;
 
-        private static string DefaultConfigPath => Path.Combine(
-            AppDomain.CurrentDomain.BaseDirectory,
-            "ai_config.json"
-        );
+        // PR #1 auditoría 2026-10: antes junto al .exe (carpeta de instalación a menudo
+        // protegida → la escritura fallaba y el catch vacío la ocultaba); ahora en
+        // %LOCALAPPDATA%\ArdillaUpdater.
+        private const string FileName = "ai_config.json";
+
+        internal static string DefaultConfigPath => Path.Combine(AppPaths.UserDataDir, FileName);
 
         public static List<string> GetAvailableModels(string? modelsFilePath = null)
         {
@@ -85,9 +87,18 @@ namespace ArdillaUpdater.AI
             return list;
         }
 
-        public static AiConfig Load(string? configPath = null)
+        public static AiConfig Load(string? configPath = null, Action<string>? log = null)
         {
             string path = configPath ?? DefaultConfigPath;
+
+            // Migración (solo con la ruta por defecto): si la config aún vive junto al
+            // .exe de una instalación vieja, se copia una sola vez a %LOCALAPPDATA%.
+            if (configPath == null)
+            {
+                AppPaths.TryMigrateLegacyFile(
+                    Path.Combine(AppDomain.CurrentDomain.BaseDirectory, FileName), path, log);
+            }
+
             try
             {
                 if (File.Exists(path))
@@ -101,33 +112,44 @@ namespace ArdillaUpdater.AI
                             config.Model.Contains("deepseek-v3.1", StringComparison.OrdinalIgnoreCase))
                         {
                             config.Model = "nemotron-3-nano:30b-cloud";
-                            config.Save(path);
+                            config.Save(path, log);
                         }
                         return config;
                     }
                 }
             }
-            catch
+            catch (Exception ex)
             {
-                // Fallback silencioso con valores por defecto
+                // Archivo ilegible (JSON corrupto): antes se sobrescribía con los valores
+                // por defecto y el contenido se perdía para siempre. Ahora se guarda una
+                // copia .bak, se regenera y se informa por el log de la app.
+                AppPaths.TryBackupCorruptFile(path, log);
+                log?.Invoke($"ai_config.json ilegible ({ex.Message}); copia guardada en .bak.");
             }
 
             var defaultConfig = new AiConfig();
-            defaultConfig.Save(path);
+            defaultConfig.Save(path, log);
             return defaultConfig;
         }
 
-        public void Save(string? configPath = null)
+        public void Save(string? configPath = null, Action<string>? log = null)
         {
             string path = configPath ?? DefaultConfigPath;
             try
             {
+                // Carpeta por si no existe + escritura atómica (.tmp y reemplazo):
+                // si el disco falla a mitad, el archivo anterior queda intacto.
+                string? dir = Path.GetDirectoryName(path);
+                if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+
                 var json = JsonConvert.SerializeObject(this, Formatting.Indented);
-                File.WriteAllText(path, json);
+                AppPaths.SaveJsonAtomic(path, json);
             }
-            catch
+            catch (Exception ex)
             {
-                // Ignorar error de escritura en disco protegido
+                // Antes: catch vacío → el usuario creía haber guardado y no era así.
+                // Ahora el fallo se informa (el que llama puede pasarnos su log).
+                log?.Invoke($"No se pudo guardar la configuración: {ex.Message}");
             }
         }
     }

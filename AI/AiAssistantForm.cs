@@ -41,10 +41,15 @@ namespace ArdillaUpdater.AI
         private readonly Font _headerFont = new("Segoe UI Semibold", 10.5F, FontStyle.Bold);
         private readonly Font _bodyFont = new("Segoe UI", 9.8F, FontStyle.Regular);
 
-        internal AiAssistantForm(Form1 mainForm, DlcCatalogService dlcCatalog)
+        // Log de la ventana principal: sirve para avisar si guardar o cargar la
+        // configuración / conversación falla (antes todos los fallos eran silenciosos).
+        private readonly Action<string>? _log;
+
+        internal AiAssistantForm(Form1 mainForm, DlcCatalogService dlcCatalog, Action<string>? log = null)
         {
             _mainForm = mainForm ?? throw new ArgumentNullException(nameof(mainForm));
-            _config = AiConfig.Load();
+            _log = log;
+            _config = AiConfig.Load(log: _log);
             _aiService = new ArdillaAiService(_config);
 
             _agent = new ArdillaAiAgent(
@@ -494,7 +499,7 @@ namespace ArdillaUpdater.AI
                 DisposeCurrentCts(cancel: false);
 
                 // Se guarda el historial para no perder la conversación al cerrar la ventana.
-                AiConversationStore.Save(_aiService.GetHistory());
+                AiConversationStore.Save(_aiService.GetHistory(), log: _log);
 
                 if (!_closing)
                 {
@@ -778,7 +783,7 @@ namespace ArdillaUpdater.AI
         /// </summary>
         private void RestoreConversation()
         {
-            var history = AiConversationStore.Load();
+            var history = AiConversationStore.Load(log: _log);
             if (history.Count == 0)
             {
                 AppendWelcomeMessage();

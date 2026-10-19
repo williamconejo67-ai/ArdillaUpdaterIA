@@ -10,6 +10,27 @@ El formato recomendado es:
 - `Removed` para cosas eliminadas
 - `Security` para mejoras de seguridad o integridad
 
+## [1.1.6] - 2026-10-18
+
+### Fixed
+
+- **Configuración y conversación ya no se pierden en silencio**: `ai_config.json` y `ai_conversation.json` se guardan ahora en `%LOCALAPPDATA%\ArdillaUpdater` (carpeta con escritura garantizada) en lugar de junto al `.exe`; en el primer arranque **migran** automáticamente los archivos de instalaciones antiguas y, si un JSON está corrupto, se guarda una copia `.bak` antes de regenerarlo. Antes un `catch` vacío ocultaba cualquier fallo de escritura.
+- **Cambio de idioma tras cerrar ventanas**: `LanguageManager.LanguageChanged` se suscribe con métodos con nombre y se anula al cerrar (`Dispose`/`FormClosed`). Antes las lambdas quedaban clavadas en el evento estático y un cambio de idioma posterior tocaba controles destruidos y terminaba la app (`ObjectDisposedException`); `ApplyLanguage` ahora comprueba además `IsDisposed/Disposing`.
+- **Catálogo de DLC**: se aceptan los assets `.7z` (que el extractor ya soportaba) y **todas** las partes de un multipart (`.zip.002`, `.7z.003`…); la detección de IDs pasa a `DlcIds` con tope de 3 dígitos y lookahead, así `EP1000` ya no se convierte en `EP10` ni `__Installer.zip` en `__In`.
+- **Tamaño del pack informado con verdad**: si un release publica el archivo completo `.zip`/`.7z` manda su tamaño; si solo hay partes multipart, se suma el total de todas ellas (antes solo se quedaba el tamaño de la primera parte).
+- **Paginación de GitHub acotada**: tope de 100 páginas por fuente (10.000 releases); antes una fuente que nunca devolvía página vacía dejaba la app en bucle infinito. La fuente que golpea el tope **no** se marca como completada (conservador: sus datos no se usan).
+- `DlcUrlListParser` prefiere la URL de la **primera parte** (`.001`) cuando un mismo ID aparece repetido fuera de orden (solo así se puede descargar un pack multipart completo).
+
+### Added
+
+- `AppPaths`: central de rutas de usuario con escritura atómica (`.tmp` + reemplazo), migración única desde la carpeta del `.exe` y backup de corruptos; `DlcIds`: normalizador único de IDs de DLC.
+- Pruebas nuevas: `LanguageManagerTests`, `DlcIdsTests` y extensiones de `AiConfigTests`, `AiConversationStoreTests`, `DlcCatalogServiceTests` y `DlcUrlListParserTests` (34 casos nuevos).
+
+### Notes
+
+- Auditoría externa 2026-10: los PR #1–#3 se validaron contra el código real y contra los datos públicos del repo de DLCs antes de aplicarlos (adaptaciones documentadas en los comentarios de cada archivo).
+- Verificación de esta versión: compilación `0 advertencias, 0 errores`; suite completa `130/130` pruebas superadas.
+
 ## [1.1.5] - 2026-10-17
 
 ### Added

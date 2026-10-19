@@ -23,9 +23,9 @@
     <!-- Versionado:
          NO lo dejes fijo aquÃ­ si vas a versionar por publish con /p:Version=...
          Se dejan valores por defecto "1.1.5" y se sobreescriben al publicar -->
-    <Version Condition="'$(Version)'==''">1.1.5</Version>
-    <AssemblyVersion Condition="'$(AssemblyVersion)'==''">1.1.5.0</AssemblyVersion>
-    <FileVersion Condition="'$(FileVersion)'==''">1.1.5.0</FileVersion>
+    <Version Condition="'$(Version)'==''">1.1.6</Version>
+    <AssemblyVersion Condition="'$(AssemblyVersion)'==''">1.1.6.0</AssemblyVersion>
+    <FileVersion Condition="'$(FileVersion)'==''">1.1.6.0</FileVersion>
     <InformationalVersion Condition="'$(InformationalVersion)'==''">$(Version)</InformationalVersion>
   </PropertyGroup>
 

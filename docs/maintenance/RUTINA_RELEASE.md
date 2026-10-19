@@ -149,6 +149,8 @@ Verificación manual de integridad (SHA256 local vs remoto):
 
 | Versión | Fecha | Repo | Release ID | Notas |
 |---|---|---|---|---|
+| 1.1.6 | 2026-10-18 | ArdillaUpdaterIA | 416850130 | Auditoría 2026-10 (PR #1–#3); 130/130 pruebas |
+| 1.1.5 | 2026-10-18 | ArdillaUpdater | 416850351 | Auditoría 2026-10 (PR #1–#3, sin módulo IA); 77/77 pruebas |
 | 1.1.5 | 2026-10-17 | ArdillaUpdaterIA | 416059074 | Mejoras IA (#1–#10) + fix DPI; 96/96 pruebas |
 | 1.1.4 | 2026-10-17 | ArdillaUpdaterIA | 415722875 | Validación de extracciones |
 | 1.1.4 | 2026-10-17 | ArdillaUpdater | 415722887 | Igual que IA, sin módulo IA |

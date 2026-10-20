@@ -256,3 +256,58 @@ completas en ambos proyectos:
 
 Verificación: builds 0 advertencias/0 errores; pruebas IA 142/142 y clon 89/89.
 Backups pre-edición: `_backup_loteA_2026-10\` y `_backup_loteB_2026-10\`.
+
+### Lote C
+
+Los lotes A, B y C se publican juntos en un único release.
+
+#### Traducción de la interfaz (C1)
+- Los estados de progreso de `Form1` estaban en español fijo (`"Descargando"`,
+  `"Extrayendo"`, `"Completado"`, `"Cancelado"`, `"Procesando"`) y no seguían al
+  selector de idioma. Ahora usan `LanguageManager` (claves `state.*`).
+- También se tradujeron los textos del flujo de auto-actualización: `"Cancelado."`
+  (4 sitios), `"Descargando actualización..."`, `"Actualización completada. Cerrando..."`
+  y `"Descargando nueva versión {0}..."` (claves `status.*` y `log.updateDownloading`).
+- El estado `Error` reutilizaba la clave `title.error` (era el título de una ventana);
+  ahora tiene su propia clave `state.error`.
+- Claves nuevas añadidas en ES y EN de **ambos** proyectos con paridad exacta
+  (IA 110/110, clon 108/108).
+
+#### Refactor del coordinador de instalación (C2)
+- La lógica de "barrido de packs pendientes" (decidir reparar/descargar/informar)
+  estaba duplicada en `InstallAllAsync` y `UpdateMissingAsync`.
+- El reparto de packs afectados tras reparar `__Installer` estaba triplicado en
+  `InstallAllAsync`, `UpdateMissingAsync` e `InstallSelectedAsync`.
+- Ahora hay dos ayudantes privados: `QueuePendingPacks(...)` y
+  `DistributeRepairedPacks(...)`. Sin cambio de comportamiento observable; cubierto
+  por los 6 tests existentes de `DlcInstallationCoordinatorTests`.
+
+#### Módulo IA (solo proyecto IA)
+- **Tope de historial en memoria (C3)**: el historial crecía sin límite durante la
+  sesión (el recorte a `MaxHistoryMessages` solo se aplicaba al enviar al modelo).
+  Ahora `TrimHistoryToCap()` lo mantiene en ≤ 200 mensajes, sin borrar nunca el
+  `system` inicial y sin dejar un mensaje `tool` huérfano (sin su `assistant`).
+- **Clave de API cifrada con DPAPI (C4)**: antes `ApiKey` se guardaba en texto plano
+  en `ai_config.json`. Ahora `Save()` la cifra con DPAPI (ámbito de usuario de
+  Windows; el paquete ya viene en `net10.0-windows`, no se añade dependencia) y
+  `Load()` la descifra. El archivo conserva el campo `ApiKey` (con valor `dpapi:...`),
+  una config antigua en texto plano se migra al volver a guardar, y si el archivo
+  viene de otro usuario/equipo (DPAPI no puede descifrarlo) se deja la clave vacía en
+  vez de romper la app.
+- **Streaming con volcado por bloques (C5)**: el modelo envía el texto por fragmentos
+  muy pequeños y cada uno provocaba un `Invoke` + repintado del `RichTextBox`. Ahora
+  los fragmentos se acumulan y se pintan cada 120 ms o al cerrar párrafo, lo que
+  reduce parpadeo y carga de la interfaz.
+
+#### Eliminación de código muerto (C6)
+Verificado con búsqueda exhaustiva (0 usos en ambos proyectos y en los tests):
+- `Program.RestartAsAdmin(...)` (relanzado como admin; nunca invocado).
+- `SafeCopy.CopyFileIfNewer(...)`.
+- `GamePathDetector.DetectAllGamePaths()` (se conserva el usado `DetectGamePath`).
+- `PackItem.SizeText` (se conserva `FormatBytes`).
+- `ILogger.cs` y `SimpleLogger.cs` completos (nadie implementaba/consumía la interfaz;
+  el log real es `Program.AppendLog`).
+
+Verificación: builds 0 advertencias/0 errores; pruebas IA 148/148 y clon 89/89
+(5 tests nuevos en IA: historial con tope y DPAPI). Backups pre-edición:
+`_backup_loteC_2026-10\`.

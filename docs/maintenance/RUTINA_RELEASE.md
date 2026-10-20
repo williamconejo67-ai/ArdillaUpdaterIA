@@ -3,6 +3,7 @@
 *Documento interno para mantenimiento. Describe EXACTAMENTE cómo se publicó la
 versión 1.1.5 (2026-10-17), paso a paso, para poder repetirlo sin rebuscar
 en conversaciones viejas.*
+*Última publicación registrada: **IA 1.1.7 / clon 1.1.6** (2026-10-20, Lotes A+B+C).*
 
 > Regla de oro: **este repo es un "release hub"**. Solo se commitean los archivos
 > revisados a propósito (módulo AI, pruebas de AI, csproj, CHANGELOG, docs).
@@ -149,6 +150,8 @@ Verificación manual de integridad (SHA256 local vs remoto):
 
 | Versión | Fecha | Repo | Release ID | Notas |
 |---|---|---|---|---|
+| 1.1.7 | 2026-10-20 | ArdillaUpdaterIA | 418978849 | Lotes A+B+C de la auditoría interna; 148/148 pruebas |
+| 1.1.6 | 2026-10-20 | ArdillaUpdater | 418979116 | Lotes A+B+C sin módulo IA; 89/89 pruebas |
 | 1.1.6 | 2026-10-18 | ArdillaUpdaterIA | 416850130 | Auditoría 2026-10 (PR #1–#3); 130/130 pruebas |
 | 1.1.5 | 2026-10-18 | ArdillaUpdater | 416850351 | Auditoría 2026-10 (PR #1–#3, sin módulo IA); 77/77 pruebas |
 | 1.1.5 | 2026-10-17 | ArdillaUpdaterIA | 416059074 | Mejoras IA (#1–#10) + fix DPI; 96/96 pruebas |

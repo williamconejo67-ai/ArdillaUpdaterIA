@@ -11,7 +11,7 @@
 #     -Repo "williamconejo67-ai/ArdillaUpdater" -ExePath "...\ArdillaUpdater.exe"
 #
 # Requisitos:
-#   - Token GITHUB_TOKEN en el .env del uploader (ArdillaUpdaterClon\ardilla-updater-uploader\.env)
+#   - Token GITHUB_TOKEN en el .env del uploader (..\ardilla-updater-uploader\.env — carpeta hermana)
 #   - El nombre del asset debe coincidir con AppConfig.UpdaterAssetName de la app:
 #       IA   -> ArdillaUpdaterIA.exe
 #       Clon -> ArdillaUpdater.exe
@@ -29,7 +29,7 @@ param(
 $ErrorActionPreference = 'Stop'
 
 # ---- 1) Token (nunca se imprime) --------------------------------------------
-$envPath = 'E:\Respaldo 7.10.2026\Ardilla ia\ArdillaUpdaterClon\ardilla-updater-uploader\.env'
+$envPath = 'E:\Respaldo 7.10.2026\Ardilla ia\ardilla-updater-uploader\.env'
 if (-not (Test-Path $envPath)) { throw "No se encontró el .env con el token: $envPath" }
 $token = (((Get-Content $envPath) | Where-Object { $_ -like 'GITHUB_TOKEN=*' }) -replace '^GITHUB_TOKEN=', '').Trim()
 if ([string]::IsNullOrWhiteSpace($token)) { throw "GITHUB_TOKEN vacío en $envPath" }

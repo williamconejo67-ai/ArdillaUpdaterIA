@@ -18,7 +18,7 @@ en conversaciones viejas.*
 | Repo clon (sin IA) | `E:\Respaldo 7.10.2026\Ardilla ia\ArdillaUpdaterClon` |
 | Asset esperado por la app IA | `ArdillaUpdaterIA.exe` (constante `AppConfig.UpdaterAssetName`) |
 | Asset esperado por el clon | `ArdillaUpdater.exe` |
-| Token GitHub | en `ArdillaUpdaterClon\ardilla-updater-uploader\.env` (`GITHUB_TOKEN=...`) — **nunca imprimirlo ni subirlo a git** |
+| Token GitHub | en `..\ardilla-updater-uploader\.env` (carpeta hermana; el uploader quedó fuera del proyecto en 2026-10) (`GITHUB_TOKEN=...`) — **nunca imprimirlo ni subirlo a git** |
 | SDK | .NET `10.0.402` (fijado en `global.json`) |
 | `gh` CLI | **NO instalado** → usar la API de GitHub con `Invoke-RestMethod` |
 | PowerShell | sin `&&`, sin `head/tail/grep/sed` → usar `;`, `Select-Object`, `Select-String` |

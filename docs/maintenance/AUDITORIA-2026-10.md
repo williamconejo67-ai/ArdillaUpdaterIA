@@ -218,3 +218,41 @@ originales (subcarpetas `IA\` y `Clon\`), copiados **antes** de cualquier edici�
   tests; la ruta por defecto se ejecuta en la primera arranque real tras actualizar.
 - **Idea futura (no aplicada)**: `SeenPacksStore` podría migrar a `AppPaths` para
   que toda escritura de usuario pase por la misma central.
+
+---
+
+## Aplicación posterior: Lotes A y B (auditoría interna 2026-10)
+
+Tras este informe se aplicaron dos lotes de mejoras validados con build 0/0 y suites
+completas en ambos proyectos:
+
+### Lote A
+- Validación estricta de IDs de pack (`DlcIds.IsKnownPackId`) en el parser de listados:
+  un ID que no sea EPnn/GPnn/SPnn/FPnn/__Installer se descarta (evita escrituras fuera
+  de la carpeta del juego).
+- `7z.exe` terminado (`Kill(entireProcessTree)`) al cancelar una extracción.
+- `AboutForm` desuscribe `LanguageChanged` al cerrar (patrón PR #2 que se había olvidado).
+- Mutex por variante (`AppConfig.SingleInstanceMutexName`): IA y clon ya no se excluyen
+  entre sí.
+- SHA-256 real en la auto-actualización (campo `digest` de la API de GitHub, con
+  fallback al `SHA256:` del cuerpo del release) y rechazo de URLs no-HTTPS.
+- Progreso del updater con throttle (solo al cambiar el porcentaje) y buffer de 256 KB.
+- Clave `log.installerRepairMissing` (ES/EN) en el coordinador + test de paridad ES/EN.
+
+### Lote B
+- Guardián de estancamiento (`ReadWithStallGuardAsync`): si una descarga no recibe
+  datos durante 60 s falla con error reintentable en vez de congelarse (el antiguo
+  `DownloadTimeout` no lo usaba nadie; ahora es `AppConfig.DownloadStallTimeout`).
+- Sondeo multipart honesto: 404/410 = fin legítimo de partes; los errores de red/5xx
+  se reintentan y, si persisten, se aborta con error claro (antes un fallo de red se
+  trataba como "fin de partes" y se instalaba un pack incompleto en silencio). La
+  cancelación durante el sondeo se propaga como Cancelado.
+- Limpieza de temporales en segundo plano con guardián de 30 min
+  (`DlcTempStorage.MinAgeToDelete`) para no borrar carpetas de operaciones activas.
+- Constantes nombradas de reintento de extracción
+  (`AppConfig.ExtractionMaxRetries` / `ExtractionRetryDelayMs`).
+- Comprobación de espacio libre antes de descargar (`EnsureEnoughFreeSpace`, margen de
+  1 GB, best-effort si el disco no se puede consultar).
+
+Verificación: builds 0 advertencias/0 errores; pruebas IA 142/142 y clon 89/89.
+Backups pre-edición: `_backup_loteA_2026-10\` y `_backup_loteB_2026-10\`.

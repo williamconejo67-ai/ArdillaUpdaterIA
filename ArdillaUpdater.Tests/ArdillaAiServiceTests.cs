@@ -306,4 +306,57 @@ public sealed class ArdillaAiServiceTests
         service.Dispose();
         service.Dispose();
     }
+
+    [Fact]
+    public void History_KeepsGrowingOnlyUpToTheMemoryCap()
+    {
+        // Auditoría interna 2026-10 (Lote C): antes el historial crecía sin límite en
+        // memoria durante la sesión; ahora se recorta al pasar de 200 mensajes.
+        var service = new ArdillaAiService(new AiConfig { Endpoint = "http://test.local", Model = "m" });
+
+        for (int i = 0; i < 500; i++)
+        {
+            service.AddUserMessage($"mensaje {i}");
+        }
+
+        Assert.True(service.GetHistory().Count <= 200,
+            $"el historial debería recortarse a 200 como mucho y tiene {service.GetHistory().Count}");
+    }
+
+    [Fact]
+    public void History_WhenTrimmed_KeepsMostRecentMessages()
+    {
+        var service = new ArdillaAiService(new AiConfig { Endpoint = "http://test.local", Model = "m" });
+
+        for (int i = 0; i < 500; i++)
+        {
+            service.AddUserMessage($"mensaje {i}");
+        }
+
+        var history = service.GetHistory();
+
+        // El último mensaje escrito sigue estando (no se ha recortado de más).
+        Assert.Contains(history, message => ArdillaAiService.GetRole(message) == "user"
+            && message.ToString()!.Contains("mensaje 499", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void History_WhenTrimmed_NeverStartsWithAnOrphanToolMessage()
+    {
+        // Un mensaje "tool" sin el "assistant" que lo pidió confunde al modelo: al
+        // recortar, los "tool" que cuelgan del mensaje borrado también se van.
+        var service = new ArdillaAiService(new AiConfig { Endpoint = "http://test.local", Model = "m" });
+
+        for (int i = 0; i < 300; i++)
+        {
+            service.AddAssistantMessageWithToolCalls("voy a mirar", System.Linq.Enumerable.Empty<dynamic>());
+            service.AddToolResponseMessage($"resultado {i}");
+            service.AddUserMessage($"comentario {i}");
+        }
+
+        var history = service.GetHistory();
+
+        Assert.True(history.Count <= 200, $"sin recortar: {history.Count}");
+        Assert.NotEqual("tool", ArdillaAiService.GetRole(history[0]));
+    }
 }

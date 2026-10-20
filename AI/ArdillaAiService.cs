@@ -17,6 +17,15 @@ namespace ArdillaUpdater.AI
         private readonly HttpClient _httpClient;
         private readonly bool _ownsHttpClient;
         private readonly List<object> _conversationHistory = new();
+
+        /// <summary>
+        /// Tope de mensajes que se mantienen en memoria durante la sesión. La ventana que
+        /// se envía al modelo ya se recorta antes de cada envío (ComputeHistoryStartIndex),
+        /// pero el historial seguía creciendo sin límite en RAM. Auditoría interna 2026-10.
+        /// El valor es holgado (muy por encima de MaxHistoryMessages) para no perder
+        /// contexto útil en conversaciones normales.
+        /// </summary>
+        private const int MaxStoredHistoryMessages = 200;
         private bool _disposed;
 
         public ArdillaAiService(AiConfig config)
@@ -61,6 +70,46 @@ namespace ArdillaUpdater.AI
             _conversationHistory.Clear();
         }
 
+        /// <summary>
+        /// Recorta el historial en memoria si supera el tope (MaxStoredHistoryMessages).
+        /// Se van quitando los mensajes más antiguos, cuidando dos reglas:
+        ///   1. El primer mensaje system (las instrucciones de la Ardilla) no se elimina.
+        ///   2. Un mensaje "tool" nunca se manda sin el "assistant" que pidió esa
+        ///      herramienta, así que si se borra uno, se borran también los "tool"
+        ///      que vinieran a continuación.
+        /// No hace nada si el historial está dentro del límite (caso normal).
+        /// </summary>
+        private void TrimHistoryToCap()
+        {
+            if (_conversationHistory.Count <= MaxStoredHistoryMessages)
+            {
+                return;
+            }
+
+            int removeCount = _conversationHistory.Count - MaxStoredHistoryMessages;
+            int index = 0;
+
+            // Se protege el system inicial (si lo hay): no se quita.
+            if (_conversationHistory.Count > 0 && GetRole(_conversationHistory[0]) == "system")
+            {
+                index = 1;
+            }
+
+            int removed = 0;
+            while (removed < removeCount && index < _conversationHistory.Count)
+            {
+                _conversationHistory.RemoveAt(index);
+                removed++;
+
+                // Los "tool" que colgaban del mensaje borrado también se van.
+                while (index < _conversationHistory.Count && GetRole(_conversationHistory[index]) == "tool")
+                {
+                    _conversationHistory.RemoveAt(index);
+                    removed++;
+                }
+            }
+        }
+
         /// <summary>Devuelve una copia del historial actual (para guardarlo en disco).</summary>
         public IReadOnlyList<object> GetHistory()
         {
@@ -88,6 +137,7 @@ namespace ArdillaUpdater.AI
         public void AddUserMessage(string message)
         {
             _conversationHistory.Add(new { role = "user", content = message });
+            TrimHistoryToCap();
         }
 
         public void AddToolResponseMessage(string toolContent)
@@ -109,6 +159,7 @@ namespace ArdillaUpdater.AI
             }
 
             _conversationHistory.Add(msg);
+            TrimHistoryToCap();
         }
 
         /// <summary>

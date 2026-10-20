@@ -188,4 +188,48 @@ public sealed class AiConfigTests : IDisposable
 
         Assert.True(File.Exists(path));
     }
+
+    [Fact]
+    public void Save_EncryptsApiKeyOnDisk_AndLoadDecryptsIt()
+    {
+        // Auditoría interna 2026-10 (Lote C): la clave de API ya no se guarda legible
+        // en ai_config.json; se cifra con DPAPI (solo este usuario de Windows la puede abrir).
+        var config = new AiConfig { ApiKey = "token-super-secreto" };
+
+        config.Save(ConfigPath);
+        string json = File.ReadAllText(ConfigPath);
+
+        Assert.DoesNotContain("token-super-secreto", json, StringComparison.Ordinal);
+        Assert.Contains("dpapi:", json, StringComparison.Ordinal);
+        Assert.Equal("token-super-secreto", AiConfig.Load(ConfigPath).ApiKey);
+    }
+
+    [Fact]
+    public void Load_WithPlainTextApiKey_MigratesItWithoutLosingAccess()
+    {
+        // Config de una versión anterior: la clave estaba en texto plano y debe seguir
+        // funcionando (se cifra la próxima vez que se guarde).
+        File.WriteAllText(ConfigPath, """{"Endpoint":"http://localhost:11434","ApiKey":"clave-vieja"}""");
+
+        var loaded = AiConfig.Load(ConfigPath);
+        Assert.Equal("clave-vieja", loaded.ApiKey);
+
+        loaded.Save(ConfigPath);
+        Assert.DoesNotContain("clave-vieja", File.ReadAllText(ConfigPath), StringComparison.Ordinal);
+        Assert.Equal("clave-vieja", AiConfig.Load(ConfigPath).ApiKey);
+    }
+
+    [Fact]
+    public void Load_WithUndecryptableApiKey_ReturnsEmptyKeyInsteadOfFailing()
+    {
+        // Si el archivo se copió desde otro usuario/equipo, DPAPI no puede descifrarlo:
+        // mejor quedarse sin clave (el usuario la vuelve a escribir) que romper la app.
+        File.WriteAllText(ConfigPath,
+            """{"Endpoint":"http://localhost:11434","ApiKey":"dpapi:esto-no-es-base64-valido"}""");
+
+        var loaded = AiConfig.Load(ConfigPath);
+
+        Assert.Equal(string.Empty, loaded.ApiKey);
+        Assert.Equal("http://localhost:11434", loaded.Endpoint);
+    }
 }

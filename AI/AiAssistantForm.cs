@@ -37,6 +37,15 @@ namespace ArdillaUpdater.AI
         private readonly StringBuilder _streamBuffer = new();
         private bool _streamSegmentStarted;
 
+        // Auditoría interna 2026-10 (Lote C): el modelo envía el texto por fragmentos muy
+        // pequeños (a veces de un solo carácter) y cada uno acababa en un Invoke + repintado
+        // del RichTextBox. Ahora los fragmentos se acumulan y se pintan en bloque cada
+        // StreamingFlushIntervalMs (o al llegar un salto de línea, para no fragmentar
+        // párrafos). Menos parpadeo y menos carga para la interfaz.
+        private readonly StringBuilder _pendingStreamText = new();
+        private DateTime _lastStreamFlushUtc = DateTime.MinValue;
+        private const int StreamingFlushIntervalMs = 120;
+
         // Fuentes reutilizadas (se crean una sola vez, no en cada mensaje).
         private readonly Font _headerFont = new("Segoe UI Semibold", 10.5F, FontStyle.Bold);
         private readonly Font _bodyFont = new("Segoe UI", 9.8F, FontStyle.Regular);
@@ -632,6 +641,8 @@ namespace ArdillaUpdater.AI
 
             _streamSegmentStarted = false;
             _streamBuffer.Clear();
+            _pendingStreamText.Clear();
+            _lastStreamFlushUtc = DateTime.MinValue;
             SetStatus("✍️ Ardilla AI está respondiendo...");
         }
 
@@ -667,7 +678,28 @@ namespace ArdillaUpdater.AI
             }
 
             _streamBuffer.Append(chunk);
-            AppendRawText(chunk);
+
+            // Se acumula y solo se pinta cuando toca (por tiempo o al cerrar un párrafo).
+            _pendingStreamText.Append(chunk);
+            if (chunk.Contains('\n') || (DateTime.UtcNow - _lastStreamFlushUtc).TotalMilliseconds >= StreamingFlushIntervalMs)
+            {
+                FlushPendingStreamText();
+            }
+        }
+
+        /// <summary>
+        /// Vuelca a la interfaz el texto de streaming pendiente. Debe llamarse en el hilo de UI.
+        /// </summary>
+        private void FlushPendingStreamText()
+        {
+            if (_pendingStreamText.Length == 0)
+            {
+                return;
+            }
+
+            AppendRawText(_pendingStreamText.ToString());
+            _pendingStreamText.Clear();
+            _lastStreamFlushUtc = DateTime.UtcNow;
             rtbChat.ScrollToCaret();
         }
 
@@ -677,6 +709,9 @@ namespace ArdillaUpdater.AI
         /// </summary>
         private bool WasShownByStreaming(string response)
         {
+            // Si quedaban fragmentos sin pintar, primero se vuelcan.
+            FlushPendingStreamText();
+
             if (_streamBuffer.Length == 0)
             {
                 return false;

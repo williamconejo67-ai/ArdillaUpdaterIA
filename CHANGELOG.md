@@ -10,6 +10,42 @@ El formato recomendado es:
 - `Removed` para cosas eliminadas
 - `Security` para mejoras de seguridad o integridad
 
+## [1.1.7] - 2026-10-20
+
+### Security
+
+- **Clave de API de la IA cifrada en disco**: `ai_config.json` ya no guarda la clave en texto plano; se cifra con DPAPI (solo la puede descifrar el usuario de Windows que la guardó). Una configuración antigua en texto plano se **migra** automáticamente al volver a guardar, y si el archivo viene de otro usuario/equipo (DPAPI no puede descifrarlo) se deja la clave vacía en vez de romper la app.
+- **Auto-actualización verificada**: se valida el **SHA-256 real** del ejecutable descargado (campo `digest` de la API de GitHub, con respaldo en el `SHA256:` del cuerpo del release) y se rechazan las URLs que no sean **HTTPS**.
+- **Validación estricta de IDs de pack**: un ID que no sea `EPnn`/`GPnn`/`SPnn`/`FPnn`/`__Installer` se descarta durante el parseo del listado, de modo que un nombre inesperado nunca pueda escribir fuera de la carpeta del juego.
+- **Descargas incompletas ya no se cuelan**: el sondeo de partes multipart distingue "no hay más partes" (404/410) de un error real (5xx/red), que se reintenta y, si persiste, aborta con un error claro. Antes un fallo de red se interpretaba como "fin de las partes" y podía instalarse un pack incompleto en silencio.
+
+### Fixed
+
+- **Descargas que se quedaban colgadas**: nuevo guardián de estancamiento; si una descarga deja de recibir datos durante 60 s falla con un error reintentable en lugar de dejar la app congelada. Se aplica tanto a la descarga e instalación de DLC como a la auto-actualización (el antiguo `DownloadTimeout` no lo usaba nadie).
+- **`7z.exe` ya no queda vivo al cancelar**: si el usuario cancela durante la extracción, el proceso de `7z` se termina por completo (antes podía seguir trabajando en segundo plano).
+- **Cambio de idioma tras cerrar ventanas**: `AboutForm` desuscribe `LanguageChanged` al cerrarse (mismo patrón que la corrección de la versión anterior); antes una ventana ya cerrada seguía recibiendo el evento.
+- **Dos instancias a la vez**: cada variante (IA y clon) usa un mutex propio, así que ya no se excluyen entre sí al ejecutarse a la vez.
+
+### Changed
+
+- **Interfaz totalmente traducible**: los estados de progreso de la instalación (`Descargando`, `Extrayendo`, `Completado`, `Cancelado`, `Procesando`) y los mensajes del flujo de actualización ya no están escritos en español fijo; pasan por el mismo traductor que el resto de la ventana (ES/EN).
+- **Limpieza de archivos temporales en segundo plano**: al arrancar ya no bloquea la ventana, y un guardián de antigüedad (30 min) impide borrar carpetas de operaciones en curso.
+- **Historial de la IA con tope en memoria**: se mantiene un máximo de mensajes durante la sesión (el recorte al enviar al modelo ya existía); al recortar se respeta el `system` inicial y no se dejan mensajes `tool` sin su `assistant`.
+- **Respuestas de la IA más fluidas en pantalla**: el texto que llega por fragmentos del modelo se dibuja por bloques (cada 120 ms o al cerrar párrafo) en lugar de repintar el chat por cada carácter.
+- **Código interno del coordinador sin duplicar**: la decisión de "reparar / descargar / informar" y el reparto de packs afectados tras reparar `__Installer` se unifican en dos ayudantes (mismo comportamiento, cubierto por las pruebas).
+- **Comprobación de espacio libre antes de descargar** (tamaño del pack + 1 GB de margen; no bloquea si el disco no se puede consultar).
+- Constantes de reintento de extracción nombradas (`5` intentos, `400 ms` de espera).
+
+### Removed
+
+- Código sin usar: relanzado como administrador (`RestartAsAdmin`), copia de archivos por fecha (`CopyFileIfNewer`), detección de varias instalaciones del juego (`DetectAllGamePaths`), propiedad de tamaño de pack sin uso (`SizeText`) y la interfaz de logging `ILogger`/`SimpleLogger` (nadie la consumía; el registro real es `Program.AppendLog`).
+
+### Notes
+
+- Verificación de esta versión: compilación `0 advertencias, 0 errores` (Debug y Release); suite completa `148/148` pruebas superadas.
+- Claves nuevas de traducción añadidas en ES y EN con paridad exacta (110/110).
+- Detalle técnico completo en `docs/maintenance/AUDITORIA-2026-10.md` (Lotes A, B y C).
+
 ## [1.1.6] - 2026-10-18
 
 ### Fixed

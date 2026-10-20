@@ -1,14 +1,81 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Security.Cryptography;
+using System.Text;
 using Newtonsoft.Json;
 
 namespace ArdillaUpdater.AI
 {
     internal class AiConfig
     {
-        public string Endpoint { get; set; } = "http://localhost:11434";
+        /// <summary>
+        /// Clave de API en claro SOLO mientras la app está en marcha. En disco nunca se
+        /// escribe tal cual: Save() la cifra con DPAPI (solo la puede descifrar este
+        /// usuario de Windows) y Load() la descifra al leer. Auditoría interna 2026-10.
+        /// </summary>
+        [JsonIgnore]
         public string ApiKey { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Versión cifrada de la clave de API, es la que se guarda en ai_config.json.
+        /// Se marca [JsonProperty] con el mismo nombre "ApiKey" para que el archivo siga
+        /// siendo compatible (y para que el usuario no vea dos campos distintos).
+        /// </summary>
+        [JsonProperty("ApiKey")]
+        private string EncryptedApiKey
+        {
+            get
+            {
+                if (string.IsNullOrEmpty(ApiKey))
+                    return string.Empty;
+
+                try
+                {
+                    // Bolsillo (usuario): la clave solo se puede descifrar con la cuenta de
+                    // Windows actual. Si falla el cifrado, se devuelve en claro para no
+                    // perderla (peor sería perder el acceso). Auditoría interna 2026-10.
+                    byte[] plain = Encoding.UTF8.GetBytes(ApiKey);
+                    byte[] encrypted = ProtectedData.Protect(plain, null, DataProtectionScope.CurrentUser);
+                    return "dpapi:" + Convert.ToBase64String(encrypted);
+                }
+                catch (Exception)
+                {
+                    return ApiKey;
+                }
+            }
+            set
+            {
+                if (string.IsNullOrEmpty(value))
+                {
+                    ApiKey = string.Empty;
+                    return;
+                }
+
+                if (!value.StartsWith("dpapi:", StringComparison.Ordinal))
+                {
+                    // Config vieja: la clave estaba guardada en texto plano. La aceptamos
+                    // tal cual; al volver a guardar, Save() la cifrará.
+                    ApiKey = value;
+                    return;
+                }
+
+                try
+                {
+                    byte[] encrypted = Convert.FromBase64String(value.Substring("dpapi:".Length));
+                    byte[] plain = ProtectedData.Unprotect(encrypted, null, DataProtectionScope.CurrentUser);
+                    ApiKey = Encoding.UTF8.GetString(plain);
+                }
+                catch (Exception)
+                {
+                    // El archivo pudo copiarse desde otro usuario/equipo: DPAPI no puede
+                    // descifrarlo. Se deja la clave vacía en vez de romper la app.
+                    ApiKey = string.Empty;
+                }
+            }
+        }
+
+        public string Endpoint { get; set; } = "http://localhost:11434";
         public string Model { get; set; } = "nemotron-3-nano:30b-cloud";
         public int MaxHistoryMessages { get; set; } = 20;
         public double Temperature { get; set; } = 0.5;

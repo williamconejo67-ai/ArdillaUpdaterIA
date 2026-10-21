@@ -311,3 +311,55 @@ Verificado con búsqueda exhaustiva (0 usos en ambos proyectos y en los tests):
 Verificación: builds 0 advertencias/0 errores; pruebas IA 148/148 y clon 89/89
 (5 tests nuevos en IA: historial con tope y DPAPI). Backups pre-edición:
 `_backup_loteC_2026-10\`.
+
+### Lote D — diagnóstico de errores de Los Sims 4 (solo proyecto IA)
+
+Revisión del diagnóstico de `lastException.txt` del módulo IA. El clon no tiene módulo
+IA, así que **no se toca**. Todo el análisis de texto se separó de la parte que consulta
+el disco/Registro para poder probarlo con tests sin depender del equipo del usuario.
+
+#### 1) Búsqueda robusta de la carpeta de usuario
+- Antes `ArdillaAiAgent.DiagnoseSims4Errors` probaba **solo dos rutas exactas**
+  (`Documentos\Electronic Arts\The Sims 4` y `…\Los Sims 4`). Fallaba con "Documentos"
+  redirigido a OneDrive y con el juego en otros idiomas.
+- Ahora `Sims4ErrorAnalyzer.TryFindUserFolder()` reúne varias raíces candidatas:
+  `SpecialFolder.MyDocuments`, variables `OneDrive`/`OneDriveConsumer`, el valor
+  `Personal` del Registro (`Shell Folders`) y `%USERPROFILE%\Documents`. En cada una
+  busca `Electronic Arts\<carpeta del juego>` (por sus archivos típicos:
+  `lastException.txt`, `lastCrash.txt`, `Options.ini`, `Mods`, `Saves`), y si no la
+  encuentra hace un **barrido corto** (≤ 3 niveles, ≤ 800 carpetas) por si el juego
+  quedó en una ruta inesperada.
+
+#### 2) Bloque muerto eliminado y errores de script de verdad
+- `Sims4ErrorAnalyzer.cs` tenía un `if` con **cuerpo vacío**: detectaba las líneas
+  `Script Error`/`Exception` y no guardaba nada. Ahora esas líneas se recogen (sin
+  duplicados, máx. 10) y aparecen bajo "Mensajes de error encontrados".
+
+#### 3) Tipo de excepción real
+- Antes se buscaba la **primera** línea con "Exception" y "Type", que en un
+  `lastException.txt` real es una comprobación interna de tipos (información
+  engañosa). Ahora se prioriza el tipo de la traza de Python (`AttributeError:`,
+  `TypeError:`…), con respaldo para `System.XxxException:` y, solo como último
+  recurso, la primera línea que mencione "Exception".
+- Se resume también la **cabecera XML** del informe (`version`, `sessionId`,
+  `productSku`…) para que la IA no tenga que adivinar entre etiquetas.
+
+#### 4) Aviso de antigüedad
+- Si el error tiene más de **30 días** (`StaleErrorDays`) se añade un aviso de que
+  puede no ser el problema actual; además se describe la antigüedad en lenguaje
+  natural ("hace 3 días", "hace ~2 meses").
+
+#### 5) Búsqueda del archivo en subcarpetas
+- Antes solo se miraba `lastException.txt` en la raíz de la carpeta del juego.
+  `Sims4ErrorAnalyzer.FindLastExceptionFile` lo busca ahora en la raíz y en
+  `Mods\` y `Mods\Exceptions\`.
+
+#### 6) Tests nuevos (IA)
+`ArdillaUpdater.Tests/Sims4ErrorAnalyzerTests.cs` — 17 pruebas sobre archivo realista
+(XML + traza), tipo de excepción, mods sospechosos, mensajes de script, archivo vacío /
+ausente, antigüedad y localización del archivo y de la carpeta (con candidatos
+inyectados, sin tocar el disco real).
+
+Verificación: builds 0 advertencias/0 errores (Debug y Release); pruebas IA **165/165**
+(+17) y clon **89/89** (control, sin cambios). Backup pre-edición:
+`_backup_loteD_2026-10\`.

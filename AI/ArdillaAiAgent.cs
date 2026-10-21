@@ -325,24 +325,25 @@ namespace ArdillaUpdater.AI
 
         private string DiagnoseSims4Errors()
         {
-            string docsPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
-            string[] possiblePaths =
-            [
-                Path.Combine(docsPath, "Electronic Arts", "The Sims 4"),
-                Path.Combine(docsPath, "Electronic Arts", "Los Sims 4")
-            ];
+            // Auditoría interna 2026-10 (Lote D): la búsqueda de la carpeta de usuario se
+            // delega en Sims4ErrorAnalyzer, que contempla OneDrive, "Documentos" redirigido
+            // por el Registro y el nombre del juego en otros idiomas (antes solo probaba
+            // dos rutas exactas: "The Sims 4" y "Los Sims 4").
+            string? foundDir = Sims4ErrorAnalyzer.TryFindUserFolder();
 
-            string? foundDir = possiblePaths.FirstOrDefault(Directory.Exists);
             if (foundDir == null)
             {
-                return "No se encontró la carpeta de usuario de Los Sims 4 en Documentos\\Electronic Arts. ¿El juego se ha ejecutado al menos una vez en este equipo?";
+                string docsPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+                return $"No se encontró la carpeta de usuario de Los Sims 4 en Documentos " +
+                       $"({docsPath}\\Electronic Arts). ¿El juego se ha ejecutado al menos una vez en este equipo?";
             }
 
             var sb = new StringBuilder();
             sb.AppendLine($"Carpeta de usuario examinada: {foundDir}");
 
-            string lastExceptionPath = Path.Combine(foundDir, "lastException.txt");
-            if (File.Exists(lastExceptionPath))
+            // El archivo puede estar en la raíz o en subcarpetas conocidas (Mods...).
+            string? lastExceptionPath = Sims4ErrorAnalyzer.FindLastExceptionFile(foundDir);
+            if (lastExceptionPath != null)
             {
                 var fi = new FileInfo(lastExceptionPath);
                 sb.AppendLine($"⚠️ 'lastException.txt' encontrado (Última modificación: {fi.LastWriteTime:yyyy-MM-dd HH:mm})");

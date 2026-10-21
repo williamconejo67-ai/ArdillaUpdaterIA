@@ -1,8 +1,7 @@
 # Rutina de release - ArdillaUpdater (copia de trabajo)
 
-*Documento interno para mantenimiento. Describe EXACTAMENTE cómo se publicó la
-versión 1.1.5 (2026-10-17), paso a paso, para poder repetirlo sin rebuscar
-en conversaciones viejas.*
+*Documento interno para mantenimiento. Describe paso a paso cómo se publica una
+versión, para poder repetirlo sin rebuscar en conversaciones viejas.*
 *Última publicación registrada: **IA 1.1.7 / clon 1.1.6** (2026-10-20, Lotes A+B+C).*
 
 > Regla de oro: **este repo es un "release hub"**. Solo se commitean los archivos

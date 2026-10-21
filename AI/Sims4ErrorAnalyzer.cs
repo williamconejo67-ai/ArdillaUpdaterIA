@@ -355,6 +355,84 @@ namespace ArdillaUpdater.AI
         }
 
         /// <summary>
+        /// Genera el informe completo del diagnóstico del juego, listo para que lo lea
+        /// una persona o la IA.
+        ///
+        /// Incluye: la carpeta de usuario localizada, el análisis de <c>lastException.txt</c>
+        /// (si existe), el aviso de <c>lastCrash.txt</c> y el recuento de mods.
+        ///
+        /// Auditoría interna 2026-10 (Lote E): esta orquestación vivía dentro de
+        /// <c>ArdillaAiAgent.DiagnoseSims4Errors</c> (método privado) y solo se podía
+        /// ejecutar a través del chat de la IA. Ahora está aquí, en el analizador, para
+        /// poder reutilizarla desde el botón "Diagnosticar juego" de la ventana principal
+        /// y poder probarla con tests.
+        /// </summary>
+        /// <param name="log">Opcional: función para registrar avisos (por ejemplo, el log de la app).</param>
+        public static string BuildDiagnosticReport(Action<string>? log = null)
+        {
+            string? foundDir = TryFindUserFolder();
+
+            if (foundDir == null)
+            {
+                string docsPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+                return "No se encontró la carpeta de usuario de Los Sims 4.\n" +
+                       $"Se buscó en Documentos (por ejemplo: {docsPath}\\Electronic Arts), en OneDrive " +
+                       "y en las ubicaciones habituales.\n" +
+                       "¿El juego se ha ejecutado al menos una vez en este equipo?";
+            }
+
+            var sb = new StringBuilder();
+            sb.AppendLine($"Carpeta de usuario examinada: {foundDir}");
+
+            // El archivo puede estar en la raíz o en subcarpetas conocidas (Mods...).
+            string? lastExceptionPath = FindLastExceptionFile(foundDir);
+            if (lastExceptionPath != null)
+            {
+                var fi = new FileInfo(lastExceptionPath);
+                sb.AppendLine($"⚠️ 'lastException.txt' encontrado (Última modificación: {fi.LastWriteTime:yyyy-MM-dd HH:mm})");
+                sb.AppendLine();
+                sb.AppendLine(AnalyzeLastException(lastExceptionPath));
+                sb.AppendLine();
+            }
+            else
+            {
+                sb.AppendLine("✅ No hay archivo lastException.txt (el juego no ha registrado errores recientes de script).");
+            }
+
+            string lastCrashPath = Path.Combine(foundDir, "lastCrash.txt");
+            try
+            {
+                if (File.Exists(lastCrashPath))
+                {
+                    var fi = new FileInfo(lastCrashPath);
+                    sb.AppendLine($"⚠️ 'lastCrash.txt' encontrado (Última modificación: {fi.LastWriteTime:yyyy-MM-dd HH:mm}). Indica un cierre inesperado del juego.");
+                }
+            }
+            catch (Exception ex) when (IsRecoverable(ex))
+            {
+                // Sin permiso para leer lastCrash.txt: no se interrumpe el diagnóstico.
+                log?.Invoke($"No se pudo consultar lastCrash.txt: {ex.Message}");
+            }
+
+            string modsDir = Path.Combine(foundDir, "Mods");
+            try
+            {
+                if (Directory.Exists(modsDir))
+                {
+                    var modFiles = Directory.GetFiles(modsDir, "*.package", SearchOption.AllDirectories);
+                    var ts4scripts = Directory.GetFiles(modsDir, "*.ts4script", SearchOption.AllDirectories);
+                    sb.AppendLine($"Carpeta Mods detectada: {modFiles.Length} archivos .package y {ts4scripts.Length} scripts .ts4script.");
+                }
+            }
+            catch (Exception ex) when (IsRecoverable(ex))
+            {
+                sb.AppendLine($"Carpeta Mods detectada, pero no se pudo enumerar: {ex.Message}");
+            }
+
+            return sb.ToString();
+        }
+
+        /// <summary>
         /// Saca el tipo de excepción REAL. En el archivo de Los Sims 4 la traza es de
         /// Python y el tipo aparece como "AttributeError: ...", "TypeError: ...", etc.
         /// (antes se buscaba la primera línea con "Exception" y "Type", que solía ser una

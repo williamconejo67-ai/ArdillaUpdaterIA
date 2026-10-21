@@ -10,6 +10,14 @@ El formato recomendado es:
 - `Removed` para cosas eliminadas
 - `Security` para mejoras de seguridad o integridad
 
+## [1.1.8] - 2026-10-20
+
+### Added
+
+- **Botón "🩺 Diagnosticar juego"**: analiza los errores del juego (`lastException.txt`) directamente desde la ventana principal, sin tener que pasar por el chat de la IA. Muestra un informe con la carpeta del juego, el tipo de excepción, los mods sospechosos y un extracto, en una ventana con opción de **copiar** el informe.
+- **Botón "🛡️ Reiniciar como admin"**: relanza la aplicación pidiendo permisos de administrador (UAC), útil para instalar en rutas protegidas como `Program Files`. Si ya se está ejecutando como administrador, lo avisa en lugar de reabrir la ventana.
+- **Diagnóstico robusto del juego (Lote D)**: la búsqueda de la carpeta de usuario ahora contempla **OneDrive**, "Documentos" redirigido y el nombre del juego en **otros idiomas**; además avisa cuando el error es **antiguo** y busca `lastException.txt` también dentro de `Mods`.
+
 ## [1.1.7] - 2026-10-20
 
 ### Security

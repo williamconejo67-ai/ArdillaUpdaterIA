@@ -325,60 +325,12 @@ namespace ArdillaUpdater.AI
 
         private string DiagnoseSims4Errors()
         {
-            // Auditoría interna 2026-10 (Lote D): la búsqueda de la carpeta de usuario se
-            // delega en Sims4ErrorAnalyzer, que contempla OneDrive, "Documentos" redirigido
-            // por el Registro y el nombre del juego en otros idiomas (antes solo probaba
-            // dos rutas exactas: "The Sims 4" y "Los Sims 4").
-            string? foundDir = Sims4ErrorAnalyzer.TryFindUserFolder();
-
-            if (foundDir == null)
-            {
-                string docsPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
-                return $"No se encontró la carpeta de usuario de Los Sims 4 en Documentos " +
-                       $"({docsPath}\\Electronic Arts). ¿El juego se ha ejecutado al menos una vez en este equipo?";
-            }
-
-            var sb = new StringBuilder();
-            sb.AppendLine($"Carpeta de usuario examinada: {foundDir}");
-
-            // El archivo puede estar en la raíz o en subcarpetas conocidas (Mods...).
-            string? lastExceptionPath = Sims4ErrorAnalyzer.FindLastExceptionFile(foundDir);
-            if (lastExceptionPath != null)
-            {
-                var fi = new FileInfo(lastExceptionPath);
-                sb.AppendLine($"⚠️ 'lastException.txt' encontrado (Última modificación: {fi.LastWriteTime:yyyy-MM-dd HH:mm})");
-                sb.AppendLine();
-                sb.AppendLine(Sims4ErrorAnalyzer.AnalyzeLastException(lastExceptionPath));
-                sb.AppendLine();
-            }
-            else
-            {
-                sb.AppendLine("✅ No hay archivo lastException.txt (el juego no ha registrado errores recientes de script).");
-            }
-
-            string lastCrashPath = Path.Combine(foundDir, "lastCrash.txt");
-            if (File.Exists(lastCrashPath))
-            {
-                var fi = new FileInfo(lastCrashPath);
-                sb.AppendLine($"⚠️ 'lastCrash.txt' encontrado (Última modificación: {fi.LastWriteTime:yyyy-MM-dd HH:mm}). Indica un cierre inesperado del juego.");
-            }
-
-            string modsDir = Path.Combine(foundDir, "Mods");
-            if (Directory.Exists(modsDir))
-            {
-                try
-                {
-                    var modFiles = Directory.GetFiles(modsDir, "*.package", SearchOption.AllDirectories);
-                    var ts4scripts = Directory.GetFiles(modsDir, "*.ts4script", SearchOption.AllDirectories);
-                    sb.AppendLine($"Carpeta Mods detectada: {modFiles.Length} archivos .package y {ts4scripts.Length} scripts .ts4script.");
-                }
-                catch (Exception ex)
-                {
-                    sb.AppendLine($"Carpeta Mods detectada, pero no se pudo enumerar: {ex.Message}");
-                }
-            }
-
-            return sb.ToString();
+            // Auditoría interna 2026-10 (Lotes D y E): la búsqueda de la carpeta de usuario,
+            // el análisis de lastException.txt y el resumen de mods viven ahora en
+            // Sims4ErrorAnalyzer.BuildDiagnosticReport, que también usa el botón
+            // "Diagnosticar juego" de la ventana principal. Así la IA y el botón nunca se
+            // desincronizan.
+            return Sims4ErrorAnalyzer.BuildDiagnosticReport();
         }
 
         private string CheckDiskSpace()

@@ -255,4 +255,30 @@ public sealed class Sims4ErrorAnalyzerTests : IDisposable
 
         Assert.True(found == null || !found.Contains(_tempRoot, StringComparison.OrdinalIgnoreCase));
     }
+
+    // ------------------------------------------------ informe completo (Lote E)
+
+    [Fact]
+    public void BuildDiagnosticReport_NeverThrows_AndReturnsSomethingUseful()
+    {
+        // El informe completo se apoya en la búsqueda real de carpetas, así que no se
+        // puede fijar su contenido exacto (depende del equipo). Lo que sí se garantiza:
+        // nunca lanza y siempre devuelve un texto con el que trabajar (bien un informe,
+        // bien un mensaje claro de "no se encontró el juego").
+        string report = Sims4ErrorAnalyzer.BuildDiagnosticReport();
+
+        Assert.False(string.IsNullOrWhiteSpace(report));
+    }
+
+    [Fact]
+    public void BuildDiagnosticReport_UsesLogCallbackWithoutCrashing()
+    {
+        var logged = new List<string>();
+
+        string report = Sims4ErrorAnalyzer.BuildDiagnosticReport(logged.Add);
+
+        Assert.False(string.IsNullOrWhiteSpace(report));
+        // El log es opcional: puede no recibir nada si todo fue bien. Lo importante es
+        // que pasar un callback no rompe el diagnóstico.
+    }
 }

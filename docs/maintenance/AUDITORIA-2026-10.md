@@ -363,3 +363,59 @@ inyectados, sin tocar el disco real).
 Verificación: builds 0 advertencias/0 errores (Debug y Release); pruebas IA **165/165**
 (+17) y clon **89/89** (control, sin cambios). Backup pre-edición:
 `_backup_loteD_2026-10\`.
+
+### Lote E — dos botones nuevos en la ventana principal
+
+Se exponen en la interfaz dos acciones que ya existían en el código pero solo eran
+alcanzables por el chat de la IA o no tenían disparador ninguno.
+
+#### Colocación en el formulario
+
+La ventana es **fija** (900×550) y la columna izquierda (`panelLeft`, 220 de ancho)
+apilaba 5 botones (18→234) sobre el logo. Los dos botones nuevos se apilan **debajo de
+"Asistente IA"**, con altura de 40 px (algo menos que los 54 px de los existentes) para
+que el logo se encoja lo justo (~80 px) y no haya que mover ni redimensionar la ventana:
+
+| Botón | Altura | Color |
+|---|---|---|
+| 🩺 Diagnosticar juego | 40 px | verde suave |
+| 🛡️ Reiniciar como admin | 40 px | ámbar suave |
+
+Ambos usan `Dock = DockStyle.Top` y se colocaron en el `Controls.Add` con el índice
+correcto para que queden **por debajo** de "Asistente IA" (el apilado de WinForms se
+resuelve en orden inverso al de inserción).
+
+#### 🩺 Diagnosticar juego (solo proyecto IA)
+
+- La orquestación del diagnóstico vivía en `ArdillaAiAgent.DiagnoseSims4Errors`, un
+  método **privado** que solo se podía ejecutar a través del chat. Se movió a
+  `Sims4ErrorAnalyzer.BuildDiagnosticReport(Action<string>? log)`, público y reutilizable.
+  Ahora el chat de la IA y el botón comparten exactamente la misma lógica (no se
+  desincronizan).
+- El botón ejecuta el diagnóstico **en segundo plano** (no congela la ventana),
+  escribe un resumen en el log y muestra el informe completo en un cuadro de diálogo
+  con desplazamiento y botón **Copiar**.
+- Texto y etiquetas de la ventana en ES/EN (`btn.diagnose`, `dlg.*`, `log.diagnosing`…).
+
+#### 🛡️ Reiniciar como admin (ambos proyectos)
+
+- `Program.RestartAsAdmin` se había **eliminado** en el Lote C6 por no tener ningún
+  consumidor. Se recuperó (versión mejorada) y ahora **devuelve `bool`**: `true` si se
+  lanzó la instancia elevada, `false` si ya somos administrador o si el usuario canceló
+  el UAC (código de error 1223, que no se trata como fallo).
+- El botón avisa si ya se ejecuta como administrador y, si el relanzamiento se produjo,
+  cierra la ventana actual para no dejar dos abiertas.
+- Código idéntico en ambos proyectos (`Program.cs` byte a byte).
+
+#### Tests
+
+- `BuildDiagnosticReport_NeverThrows_AndReturnsSomethingUseful`: el informe nunca lanza
+  y siempre devuelve texto (no depende del equipo del usuario).
+- `BuildDiagnosticReport_UsesLogCallbackWithoutCrashing`: pasar un callback de log no
+  rompe el diagnóstico.
+- Paridad ES/EN ya cubierta por `LanguageManagerTests.Es_And_En_HaveExactlyTheSameKeys`
+  (con las claves nuevas incluidas).
+
+Verificación: builds 0 advertencias/0 errores (Debug y Release); pruebas IA **167/167**
+(+2) y clon **89/89**. Versiones nuevas: IA **1.1.8**, clon **1.1.7**. Backup
+pre-edición: `_backup_loteE_2026-10\`.

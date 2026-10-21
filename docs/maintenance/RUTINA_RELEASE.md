@@ -2,7 +2,7 @@
 
 *Documento interno para mantenimiento. Describe paso a paso cómo se publica una
 versión, para poder repetirlo sin rebuscar en conversaciones viejas.*
-*Última publicación registrada: **IA 1.1.7 / clon 1.1.6** (2026-10-20, Lotes A+B+C).*
+*Última publicación registrada: **IA 1.1.8 / clon 1.1.7** (2026-10-20, Lote E: botones de diagnóstico y reinicio como admin).*
 
 > Regla de oro: **este repo es un "release hub"**. Solo se commitean los archivos
 > revisados a propósito (módulo AI, pruebas de AI, csproj, CHANGELOG, docs).
@@ -149,6 +149,8 @@ Verificación manual de integridad (SHA256 local vs remoto):
 
 | Versión | Fecha | Repo | Release ID | Notas |
 |---|---|---|---|---|
+| 1.1.8 | 2026-10-20 | ArdillaUpdaterIA | (pendiente) | Lote E: botones Diagnosticar juego y Reiniciar admin; 167/167 pruebas |
+| 1.1.7 | 2026-10-20 | ArdillaUpdater | (pendiente) | Lote E: botón Reiniciar admin (sin módulo IA); 89/89 pruebas |
 | 1.1.7 | 2026-10-20 | ArdillaUpdaterIA | 418978849 | Lotes A+B+C de la auditoría interna; 148/148 pruebas |
 | 1.1.6 | 2026-10-20 | ArdillaUpdater | 418979116 | Lotes A+B+C sin módulo IA; 89/89 pruebas |
 | 1.1.6 | 2026-10-18 | ArdillaUpdaterIA | 416850130 | Auditoría 2026-10 (PR #1–#3); 130/130 pruebas |
